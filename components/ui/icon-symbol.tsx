@@ -1,41 +1,55 @@
-// Fallback for using MaterialIcons on Android and web.
+// components/ui/icon-symbol.tsx
+import React from 'react';
+import { Image, StyleSheet, View } from 'react-native';
 
-import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { SymbolWeight, SymbolViewProps } from 'expo-symbols';
-import { ComponentProps } from 'react';
-import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
-
-type IconMapping = Record<SymbolViewProps['name'], ComponentProps<typeof MaterialIcons>['name']>;
-type IconSymbolName = keyof typeof MAPPING;
-
-/**
- * Add your SF Symbols to Material Icons mappings here.
- * - see Material Icons in the [Icons Directory](https://icons.expo.fyi).
- * - see SF Symbols in the [SF Symbols](https://developer.apple.com/sf-symbols/) app.
- */
-const MAPPING = {
-  'house.fill': 'home',
-  'paperplane.fill': 'send',
-  'chevron.left.forwardslash.chevron.right': 'code',
-  'chevron.right': 'chevron-right',
-} as IconMapping;
-
-/**
- * An icon component that uses native SF Symbols on iOS, and Material Icons on Android and web.
- * This ensures a consistent look across platforms, and optimal resource usage.
- * Icon `name`s are based on SF Symbols and require manual mapping to Material Icons.
- */
-export function IconSymbol({
-  name,
-  size = 24,
-  color,
-  style,
-}: {
-  name: IconSymbolName;
+interface IconSymbolProps {
+  name: string;
+  color?: string;
   size?: number;
-  color: string | OpaqueColorValue;
-  style?: StyleProp<TextStyle>;
-  weight?: SymbolWeight;
-}) {
-  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
+  focused?: boolean;
 }
+
+export const IconSymbol = ({ name, color = '#000', size = 24, focused = false }: IconSymbolProps) => {
+  const getIconSource = () => {
+    switch (name) {
+      case 'home':
+        return require('@/assets/images/Home.png');
+      case 'movies':
+        return require('@/assets/images/Movie.png');
+      case 'tickets':
+        return require('@/assets/images/Ticket.png');
+      case 'profile':
+        return require('@/assets/images/Profile.png');
+      default:
+        return require('@/assets/images/Home.png');
+    }
+  };
+
+  return (
+    <View style={[
+      styles.container,
+      focused && styles.focusedContainer,
+      { width: size + 26, height: size + 26 }
+    ]}>
+      <Image
+        source={getIconSource()}
+        style={{
+          width: size,
+          height: size,
+        }}
+        resizeMode="contain"
+      />
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
+  },
+  focusedContainer: {
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+  },
+});
