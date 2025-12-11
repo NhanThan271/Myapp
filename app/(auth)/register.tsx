@@ -1,32 +1,64 @@
-import { useAuth } from '@/components/contexts/AuthContext';
+import { Toast } from '@/components/Toast';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const { login } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
+
+  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
+    setToast({ visible: true, message, type });
+  };
 
   const handleRegister = () => {
     if (password !== confirmPassword) {
-      alert('Mật khẩu không khớp!');
+      showToast('Mật khẩu không khớp!');
       return;
     }
+
+    // Kiểm tra các trường bắt buộc
+    if (!fullName || !email || !password) {
+      showToast('Vui lòng điền đầy đủ thông tin!');
+      return;
+    }
+
     console.log('Register:', { fullName, email, password });
-    login();
+
+    // Hiển thị thông báo đăng ký thành công
+    showToast('Đăng ký thành công!', 'success');
+    setTimeout(() => {
+      router.back();
+    }, 2000);
+
   };
 
   const getPasswordStrength = () => {
     if (password.length === 0) return null;
-    if (password.length < 6) return { label: 'Yếu', color: '#dc2626' };
-    if (password.length < 10) return { label: 'Trung bình', color: '#ffd700' };
-    return { label: 'Mạnh', color: '#10B981' };
+
+    const hasNumber = /\d/.test(password); // Kiểm tra có số
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password); // Kiểm tra có ký tự đặc biệt
+    const hasUpperCase = /[A-Z]/.test(password); // Kiểm tra có chữ hoa
+    const hasLowerCase = /[a-z]/.test(password); // Kiểm tra có chữ thường
+
+    if (password.length < 6) {
+      return { label: 'Yếu', color: '#dc2626' };
+    }
+
+    if (hasNumber && password.length >= 6) {
+      if (hasSpecialChar || (hasUpperCase && hasLowerCase && hasNumber && password.length >= 8)) {
+        return { label: 'Mạnh', color: '#10B981' };
+      }
+      return { label: 'Trung bình', color: '#ffd700' };
+    }
+    // Yếu: Chỉ có chữ, không có số
+    return { label: 'Yếu', color: '#dc2626' };
   };
 
   const strength = getPasswordStrength();
@@ -36,6 +68,12 @@ export default function RegisterScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      <Toast
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+        onHide={() => setToast({ ...toast, visible: false })}
+      />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}

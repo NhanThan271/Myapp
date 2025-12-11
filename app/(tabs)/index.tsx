@@ -195,7 +195,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#0a0a0f',
   },
   header: {
     padding: 20,
@@ -372,12 +372,12 @@ const styles = StyleSheet.create({
   },
   movieInfo: {
     marginTop: 8,
-    height: 90,
+    height: 115,
   },
   movieTitle: {
     color: '#fff',
     fontSize: 14,
-    height: 36,
+    height: 48,
     fontWeight: '600',
     marginBottom: 4,
     lineHeight: 18,
@@ -425,7 +425,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   bottomSpacing: {
-    height: 40,
+    height: 80,
   },
   logo: {
     width: 100,

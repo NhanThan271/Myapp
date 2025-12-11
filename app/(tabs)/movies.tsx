@@ -283,18 +283,18 @@ const styles = StyleSheet.create({
     movieGrid: {
         flex: 1,
     },
-    movieGridContent: {
-        padding: 20,
-    },
     gridContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
         gap: 16,
-        justifyContent: 'space-between',
     },
     movieCard: {
-        width: '48%',
+        width: '47%',
         marginBottom: 8,
+    },
+    movieGridContent: {
+        padding: 20,
+        paddingBottom: 100,
     },
     moviePoster: {
         width: '100%',
@@ -338,6 +338,7 @@ const styles = StyleSheet.create({
     },
     movieInfo: {
         marginTop: 8,
+        minHeight: 110,
     },
     movieTitle: {
         color: '#fff',
@@ -345,6 +346,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginBottom: 6,
         lineHeight: 18,
+        height: 46,
     },
     movieMeta: {
         color: '#999',

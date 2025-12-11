@@ -1,4 +1,5 @@
 import { useAuth } from '@/components/contexts/AuthContext';
+import { Toast } from '@/components/Toast';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -8,14 +9,43 @@ export default function LoginScreen() {
   const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [toast, setToast] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
+
+  const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
+    setToast({ visible: true, message, type });
+  };
 
   const handleLogin = () => {
+    if (!email || !password) {
+      showToast('Vui lòng nhập đầy đủ thông tin!', 'error');
+      return;
+    }
+
+    if (!email.includes('@')) {
+      showToast('Email không hợp lệ!', 'error');
+      return;
+    }
+
+    if (password.length < 6) {
+      showToast('Mật khẩu phải có ít nhất 6 ký tự!', 'error');
+      return;
+    }
+
     console.log('Login:', email, password);
-    login();
+    showToast('Đăng nhập thành công!', 'success');
+    setTimeout(() => {
+      login();
+    }, 1000);
   };
 
   return (
     <View style={styles.container}>
+      <Toast
+        visible={toast.visible}
+        message={toast.message}
+        type={toast.type}
+        onHide={() => setToast({ ...toast, visible: false })}
+      />
       <View style={styles.card}>
         <Image
           source={require('@/assets/images/LogoCinema.png')}
@@ -47,7 +77,8 @@ export default function LoginScreen() {
         />
 
         <TouchableOpacity style={styles.forgotButton}>
-          <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+          <Text style={styles.forgotText} onPress={() => router.push('/(auth)/ForgotPasswordScreen')}>
+            Quên mật khẩu?</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
