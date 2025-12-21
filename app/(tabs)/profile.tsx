@@ -33,7 +33,7 @@ export default function ProfileScreen() {
             icon: '🎫',
             title: 'Vé của tôi',
             subtitle: 'Xem lịch sử đặt vé',
-            //onPress: () => router.push('/(tabs)/tickets'),
+            onPress: () => router.push('/(ticket)/myticket'),
         },
         {
             id: 2,

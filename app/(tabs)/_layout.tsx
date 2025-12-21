@@ -78,14 +78,14 @@ export default function TabLayout() {
         }}
       />
 
-      {/* TICKETS */}
+      {/* BOOKING */}
       <Tabs.Screen
-        name="tickets"
+        name="booking"
         options={{
-          title: 'Vé của tôi',
+          title: 'Dặt vé',
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol
-              name="tickets"
+              name="booking"
               color={color}
               size={26}
               focused={focused}

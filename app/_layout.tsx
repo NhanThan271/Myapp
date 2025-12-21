@@ -1,29 +1,36 @@
+import SplashScreen from '@/app/(plash)/splashScreen';
 import { AuthProvider, useAuth } from '@/components/contexts/AuthContext';
-import { Slot, useRouter, useSegments } from 'expo-router';
-import { useEffect } from 'react';
+import { Stack, useRouter, useSegments } from 'expo-router';
+import { useEffect, useState } from 'react';
 
 function RootLayoutNav() {
-  const { isAuthenticated } = useAuth();
-  const segments = useSegments();
   const router = useRouter();
+  const segments = useSegments();
+  const { isAuthenticated } = useAuth();
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
-    if (!router) return;
+    if (showSplash) return;
 
-    const timeout = setTimeout(() => {
-      const inAuthGroup = segments[0] === '(auth)';
+    const inAuthGroup = segments[0] === '(auth)';
 
-      if (!isAuthenticated && !inAuthGroup) {
-        router.replace('/(auth)/login');
-      } else if (isAuthenticated && inAuthGroup) {
-        router.replace('/(tabs)');
-      }
-    }, 50);
+    if (isAuthenticated && inAuthGroup) {
+      router.replace('/(tabs)');
+    } else if (!isAuthenticated && !inAuthGroup) {
+      router.replace('/(auth)/login');
+    }
+  }, [isAuthenticated, showSplash, segments]);
 
-    return () => clearTimeout(timeout);
-  }, [isAuthenticated, segments, router]);
+  if (showSplash) {
+    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
 
-  return <Slot />;
+  return (
+    <Stack screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="(tabs)" />
+    </Stack>
+  );
 }
 
 export default function RootLayout() {
@@ -32,4 +39,4 @@ export default function RootLayout() {
       <RootLayoutNav />
     </AuthProvider>
   );
-} 
+}

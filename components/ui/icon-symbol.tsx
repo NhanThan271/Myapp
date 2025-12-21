@@ -20,6 +20,8 @@ export const IconSymbol = ({ name, color = '#000', size = 24, focused = false }:
         return require('@/assets/images/Ticket.png');
       case 'profile':
         return require('@/assets/images/Profile.png');
+      case 'booking':
+        return require('@/assets/images/booking.png');
       default:
         return require('@/assets/images/Home.png');
     }

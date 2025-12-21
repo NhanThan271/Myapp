@@ -1,7 +1,8 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // Mock data
@@ -89,8 +90,17 @@ const allMovies = [
 ];
 
 export default function MoviesScreen() {
+    const params = useLocalSearchParams();
     const [selectedTab, setSelectedTab] = useState<'now-showing' | 'coming-soon'>('now-showing');
     const [searchQuery, setSearchQuery] = useState('');
+
+    useEffect(() => {
+        if (params.tab === 'coming-soon') {
+            setSelectedTab('coming-soon');
+        } else if (params.tab === 'now-showing') {
+            setSelectedTab('now-showing');
+        }
+    }, [params.tab]);
 
     const filteredMovies = allMovies.filter(movie => {
         const matchesTab = movie.status === selectedTab;
@@ -198,7 +208,7 @@ export default function MoviesScreen() {
                                     </Text>
 
                                     {movie.status === 'now-showing' ? (
-                                        <TouchableOpacity style={styles.bookButton}>
+                                        <TouchableOpacity style={styles.bookButton} onPress={() => router.push('/booking')}>
                                             <Text style={styles.bookButtonText}>Đặt vé</Text>
                                         </TouchableOpacity>
                                     ) : (

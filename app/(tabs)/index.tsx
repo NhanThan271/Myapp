@@ -92,7 +92,7 @@ export default function HomeScreen() {
 
       {/* Quick Actions */}
       <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.actionButton}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/movies?tab=now-showing')}>
           <View style={styles.actionIcon}>
             <Text style={styles.actionEmoji}>🎫</Text>
           </View>
@@ -125,7 +125,7 @@ export default function HomeScreen() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>Đang chiếu</ThemedText>
-          <TouchableOpacity onPress={() => router.push('/movies')}>
+          <TouchableOpacity onPress={() => router.push('/movies?tab=now-showing')}>
             <Text style={styles.seeAllButton}>Xem tất cả →</Text>
           </TouchableOpacity>
         </View>
@@ -145,7 +145,7 @@ export default function HomeScreen() {
               <View style={styles.movieInfo}>
                 <Text style={styles.movieTitle} numberOfLines={2}>{movie.title}</Text>
                 <Text style={styles.movieGenre}>{movie.genre}</Text>
-                <TouchableOpacity style={styles.bookButton}>
+                <TouchableOpacity style={styles.bookButton} onPress={() => router.push('/booking')}>
                   <Text style={styles.bookButtonText}>Đặt vé</Text>
                 </TouchableOpacity>
               </View>
@@ -158,7 +158,7 @@ export default function HomeScreen() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>Sắp chiếu</ThemedText>
-          <TouchableOpacity onPress={() => router.push('/movies')}>
+          <TouchableOpacity onPress={() => router.push('/movies?tab=coming-soon')}>
             <Text style={styles.seeAllButton}>Xem tất cả →</Text>
           </TouchableOpacity>
         </View>
