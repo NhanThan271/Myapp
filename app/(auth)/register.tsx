@@ -1,51 +1,90 @@
 import { Toast } from '@/components/Toast';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+
+const API_BASE_URL = 'https://ltud.up.railway.app/api/auth';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const [fullName, setFullName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
 
   const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
     setToast({ visible: true, message, type });
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
+    // Validate inputs
+    if (!username || !email || !password) {
+      showToast('Vui lòng điền đầy đủ thông tin!');
+      return;
+    }
+
     if (password !== confirmPassword) {
       showToast('Mật khẩu không khớp!');
       return;
     }
 
-    // Kiểm tra các trường bắt buộc
-    if (!fullName || !email || !password) {
-      showToast('Vui lòng điền đầy đủ thông tin!');
+    if (password.length < 6) {
+      showToast('Mật khẩu phải có ít nhất 6 ký tự!');
       return;
     }
 
-    console.log('Register:', { fullName, email, password });
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      showToast('Email không hợp lệ!');
+      return;
+    }
 
-    // Hiển thị thông báo đăng ký thành công
-    showToast('Đăng ký thành công!', 'success');
-    setTimeout(() => {
-      router.back();
-    }, 2000);
+    setLoading(true);
 
+    try {
+      const response = await fetch(`${API_BASE_URL}/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: username,
+          password: password,
+          email: email,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        showToast('Đăng ký thành công!', 'success');
+        setTimeout(() => {
+          router.back();
+        }, 2000);
+      } else {
+        // Xử lý lỗi từ server
+        showToast(data.message || 'Đăng ký thất bại!');
+      }
+    } catch (error) {
+      console.error('Register error:', error);
+      showToast('Có lỗi xảy ra. Vui lòng thử lại!');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const getPasswordStrength = () => {
     if (password.length === 0) return null;
 
-    const hasNumber = /\d/.test(password); // Kiểm tra có số
-    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password); // Kiểm tra có ký tự đặc biệt
-    const hasUpperCase = /[A-Z]/.test(password); // Kiểm tra có chữ hoa
-    const hasLowerCase = /[a-z]/.test(password); // Kiểm tra có chữ thường
+    const hasNumber = /\d/.test(password);
+    const hasSpecialChar = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+    const hasUpperCase = /[A-Z]/.test(password);
+    const hasLowerCase = /[a-z]/.test(password);
 
     if (password.length < 6) {
       return { label: 'Yếu', color: '#dc2626' };
@@ -57,7 +96,6 @@ export default function RegisterScreen() {
       }
       return { label: 'Trung bình', color: '#ffd700' };
     }
-    // Yếu: Chỉ có chữ, không có số
     return { label: 'Yếu', color: '#dc2626' };
   };
 
@@ -92,15 +130,17 @@ export default function RegisterScreen() {
           <Text style={styles.title}>Đăng ký</Text>
           <Text style={styles.subtitle}>Tạo tài khoản để đặt vé xem phim</Text>
 
-          {/* Full Name Input */}
+          {/* Username Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Họ và tên</Text>
+            <Text style={styles.label}>Tên đăng nhập</Text>
             <TextInput
               style={styles.input}
-              placeholder="Nhập họ và tên"
+              placeholder="Nhập tên đăng nhập"
               placeholderTextColor="#a0a0ab"
-              value={fullName}
-              onChangeText={setFullName}
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+              editable={!loading}
             />
           </View>
 
@@ -115,6 +155,7 @@ export default function RegisterScreen() {
               onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
+              editable={!loading}
             />
           </View>
 
@@ -129,10 +170,12 @@ export default function RegisterScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                editable={!loading}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
                 style={styles.eyeButton}
+                disabled={loading}
               >
                 <Text style={styles.eyeIcon}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
               </TouchableOpacity>
@@ -170,10 +213,12 @@ export default function RegisterScreen() {
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showConfirmPassword}
+                editable={!loading}
               />
               <TouchableOpacity
                 onPress={() => setShowConfirmPassword(!showConfirmPassword)}
                 style={styles.eyeButton}
+                disabled={loading}
               >
                 <Text style={styles.eyeIcon}>{showConfirmPassword ? '👁️' : '👁️‍🗨️'}</Text>
               </TouchableOpacity>
@@ -191,8 +236,16 @@ export default function RegisterScreen() {
           </View>
 
           {/* Register Button */}
-          <TouchableOpacity style={styles.registerButton} onPress={handleRegister}>
-            <Text style={styles.registerButtonText}>Đăng ký ngay</Text>
+          <TouchableOpacity
+            style={[styles.registerButton, loading && styles.registerButtonDisabled]}
+            onPress={handleRegister}
+            disabled={loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#ffffff" />
+            ) : (
+              <Text style={styles.registerButtonText}>Đăng ký ngay</Text>
+            )}
           </TouchableOpacity>
 
           {/* Divider */}
@@ -205,13 +258,13 @@ export default function RegisterScreen() {
           {/* Social Buttons */}
           <View style={styles.socialContainer}>
             <View style={{ flex: 1, marginRight: 6 }}>
-              <TouchableOpacity style={styles.socialButton}>
-                <Text style={styles.socialText}>🔵 Google</Text>
+              <TouchableOpacity style={styles.socialButton} disabled={loading}>
+                <Text style={styles.socialText}>Google</Text>
               </TouchableOpacity>
             </View>
             <View style={{ flex: 1, marginLeft: 6 }}>
-              <TouchableOpacity style={styles.socialButton}>
-                <Text style={styles.socialText}>📘 Facebook</Text>
+              <TouchableOpacity style={styles.socialButton} disabled={loading}>
+                <Text style={styles.socialText}>Facebook</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -219,7 +272,7 @@ export default function RegisterScreen() {
           {/* Sign In Link */}
           <View style={styles.signinContainer}>
             <Text style={styles.signinText}>Đã có tài khoản? </Text>
-            <TouchableOpacity onPress={() => router.back()}>
+            <TouchableOpacity onPress={() => router.back()} disabled={loading}>
               <Text style={styles.signinLink}>Đăng nhập</Text>
             </TouchableOpacity>
           </View>
@@ -264,9 +317,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
-  },
-  icon: {
-    fontSize: 40,
   },
   title: {
     fontSize: 32,
@@ -355,6 +405,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
+  },
+  registerButtonDisabled: {
+    backgroundColor: '#6b46c1',
+    opacity: 0.7,
   },
   registerButtonText: {
     color: '#ffffff',

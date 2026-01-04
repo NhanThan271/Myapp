@@ -1,52 +1,172 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
-import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
-// Mock data cho phim
-const nowShowingMovies = [
-  {
-    id: 1,
-    title: 'Avatar: The Way of Water',
-    poster: 'https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg',
-    rating: 8.5,
-    genre: 'Action, Sci-Fi',
-  },
-  {
-    id: 2,
-    title: 'Spider-Man: No Way Home',
-    poster: 'https://image.tmdb.org/t/p/w500/1g0dhYtq4irTY1GPXvft6k4YLjm.jpg',
-    rating: 9.0,
-    genre: 'Action, Adventure',
-  },
-  {
-    id: 3,
-    title: 'The Batman',
-    poster: 'https://image.tmdb.org/t/p/w500/74xTEgt7R36Fpooo50r9T25onhq.jpg',
-    rating: 8.7,
-    genre: 'Action, Crime',
-  },
-];
+// API Configuration
+const API_BASE_URL = 'https://ltud.up.railway.app';
 
-const comingSoonMovies = [
-  {
-    id: 4,
-    title: 'Oppenheimer',
-    poster: 'https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg',
-    releaseDate: '21/07/2024',
-  },
-  {
-    id: 5,
-    title: 'Barbie',
-    poster: 'https://image.tmdb.org/t/p/w500/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg',
-    releaseDate: '21/07/2024',
-  },
-];
+// Types
+interface Genre {
+  id: number;
+  name: string;
+}
+
+interface Movie {
+  id: number;
+  title: string;
+  description: string;
+  duration: number;
+  rating: number;
+  status: 'NOW_SHOWING' | 'COMING_SOON' | 'ENDED';
+  poster: string;
+  genres: Genre[];
+  releaseDate?: string;
+}
 
 export default function HomeScreen() {
+  const [nowShowingMovies, setNowShowingMovies] = useState<Movie[]>([]);
+  const [comingSoonMovies, setComingSoonMovies] = useState<Movie[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch movies từ API
+  useEffect(() => {
+    fetchMovies();
+  }, []);
+
+  const fetchMovies = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      console.log('Fetching movies from:', API_BASE_URL);
+
+      // Lấy token từ AsyncStorage
+      const token = await AsyncStorage.getItem('authToken');
+      console.log('Token:', token ? 'Present' : 'MISSING');
+
+      if (!token) {
+        setError('Vui lòng đăng nhập để xem phim');
+        setLoading(false);
+        return;
+      }
+
+      // Cấu hình headers với token
+      const config = {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      };
+
+      // Thử fetch tất cả phim trước
+      const allMoviesResponse = await axios.get(
+        `${API_BASE_URL}/api/customer/movies`,
+        config
+      );
+
+      console.log('Raw response data type:', typeof allMoviesResponse.data);
+
+      // Parse data nếu là string
+      let rawData = allMoviesResponse.data;
+      if (typeof rawData === 'string') {
+        try {
+          rawData = JSON.parse(rawData);
+        } catch (e) {
+          console.error('JSON parse error, trying to clean data...');
+          // Nếu parse fail, có thể do circular reference, thử trim
+          const cleanedString = rawData.substring(0, rawData.lastIndexOf('}') + 1);
+          rawData = JSON.parse(cleanedString);
+        }
+      }
+
+      // Xử lý circular reference: chỉ lấy level đầu tiên
+      let allMovies: Movie[] = [];
+
+      if (Array.isArray(rawData)) {
+        // Clean data để loại bỏ circular reference
+        allMovies = rawData.map((movie: any) => ({
+          id: movie.id,
+          title: movie.title,
+          description: movie.description,
+          duration: movie.duration,
+          rating: movie.rating,
+          status: movie.status,
+          poster: movie.posterUrl || movie.poster,
+          genres: movie.genres?.map((g: any) => ({
+            id: g.id,
+            name: g.name,
+            // Không lấy movies bên trong genre để tránh circular reference
+          })) || [],
+          releaseDate: movie.releaseDate,
+        }));
+      } else {
+        throw new Error('Response is not an array');
+      }
+
+      console.log('Cleaned movies:', allMovies);
+
+      // Lọc phim theo status ở client side
+      const nowShowing = allMovies.filter((movie: Movie) => movie.status === 'NOW_SHOWING');
+      const comingSoon = allMovies.filter((movie: Movie) => movie.status === 'COMING_SOON');
+
+      console.log('Now Showing Movies:', nowShowing.length);
+      console.log('Coming Soon Movies:', comingSoon.length);
+
+      setNowShowingMovies(nowShowing);
+      setComingSoonMovies(comingSoon);
+    } catch (err: any) {
+      console.error('Error fetching movies:', err);
+
+      if (err.response) {
+        // Server trả về lỗi
+        console.error('Response status:', err.response.status);
+        console.error('Response data:', err.response.data);
+
+        if (err.response.status === 401) {
+          setError('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
+        } else {
+          setError(err.response.data?.message || 'Không thể tải danh sách phim');
+        }
+      } else if (err.request) {
+        // Không nhận được response
+        console.error('Request error - No response received');
+        setError('Không thể kết nối đến server!');
+      } else {
+        // Lỗi khác
+        console.error('Error message:', err.message);
+        setError('Đã xảy ra lỗi không xác định!');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Format poster URL
+  const getPosterUrl = (posterPath: string) => {
+    if (!posterPath) {
+      // Sử dụng placeholder image từ source khác
+      return 'https://placehold.co/500x750/1a1a1a/666666?text=No+Poster';
+    }
+    if (posterPath.startsWith('http')) {
+      return posterPath;
+    }
+    // Thêm base URL cho relative path
+    return `${API_BASE_URL}/${posterPath}`;
+  };
+
+  // Get genres string
+  const getGenresString = (genres: Genre[]) => {
+    if (!genres || genres.length === 0) return 'Chưa phân loại';
+    return genres.map(g => g.name).join(', ');
+  };
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header */}
@@ -60,12 +180,6 @@ export default function HomeScreen() {
             />
           </View>
         </View>
-
-        {/* Search Bar */}
-        <TouchableOpacity style={styles.searchBar}>
-          <Text style={styles.searchIcon}>🔍</Text>
-          <Text style={styles.searchPlaceholder}>Tìm phim, rạp...</Text>
-        </TouchableOpacity>
       </ThemedView>
 
       {/* Banner Slider */}
@@ -78,7 +192,7 @@ export default function HomeScreen() {
         {[1, 2, 3].map((item) => (
           <View key={item} style={styles.bannerCard}>
             <Image
-              source={{ uri: 'https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg' }}
+              source={{ uri: 'https://res.cloudinary.com/dmdv4vd0y/image/upload/v1767526658/movies/vhaa3gkqrdh698wraiiy.jpg' }}
               style={styles.bannerImage}
               contentFit="cover"
             />
@@ -121,70 +235,110 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Now Showing Section */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>Đang chiếu</ThemedText>
-          <TouchableOpacity onPress={() => router.push('/movies?tab=now-showing')}>
-            <Text style={styles.seeAllButton}>Xem tất cả →</Text>
-          </TouchableOpacity>
+      {/* Loading State */}
+      {loading && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#E50914" />
+          <Text style={styles.loadingText}>Đang tải phim...</Text>
         </View>
+      )}
 
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.movieList}>
-          {nowShowingMovies.map((movie) => (
-            <TouchableOpacity key={movie.id} style={styles.movieCard}>
-              <Image
-                source={{ uri: movie.poster }}
-                style={styles.moviePoster}
-                contentFit="cover"
-              />
-              <View style={styles.ratingBadge}>
-                <Text style={styles.starIcon}>⭐</Text>
-                <Text style={styles.ratingText}>{movie.rating}</Text>
-              </View>
-              <View style={styles.movieInfo}>
-                <Text style={styles.movieTitle} numberOfLines={2}>{movie.title}</Text>
-                <Text style={styles.movieGenre}>{movie.genre}</Text>
-                <TouchableOpacity style={styles.bookButton} onPress={() => router.push('/booking')}>
-                  <Text style={styles.bookButtonText}>Đặt vé</Text>
-                </TouchableOpacity>
-              </View>
+      {/* Error State */}
+      {error && (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{error}</Text>
+          {error.includes('đăng nhập') ? (
+            <TouchableOpacity
+              style={styles.retryButton}
+              onPress={() => router.push('/(auth)/login')}
+            >
+              <Text style={styles.retryButtonText}>Đăng nhập</Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+          ) : (
+            <TouchableOpacity style={styles.retryButton} onPress={fetchMovies}>
+              <Text style={styles.retryButtonText}>Thử lại</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Now Showing Section */}
+      {!loading && !error && nowShowingMovies.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <ThemedText type="subtitle" style={styles.sectionTitle}>Đang chiếu</ThemedText>
+            <TouchableOpacity onPress={() => router.push('/movies?tab=now-showing')}>
+              <Text style={styles.seeAllButton}>Xem tất cả →</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.movieList}>
+            {nowShowingMovies.map((movie) => (
+              <TouchableOpacity key={movie.id} style={styles.movieCard}>
+                <Image
+                  source={{ uri: getPosterUrl(movie.poster) }}
+                  style={styles.moviePoster}
+                  contentFit="cover"
+                />
+                <View style={styles.ratingBadge}>
+                  <Text style={styles.starIcon}>⭐</Text>
+                  <Text style={styles.ratingText}>{movie.rating.toFixed(1)}</Text>
+                </View>
+                <View style={styles.movieInfo}>
+                  <Text style={styles.movieTitle} numberOfLines={2}>{movie.title}</Text>
+                  <Text style={styles.movieGenre}>{getGenresString(movie.genres)}</Text>
+                  <TouchableOpacity style={styles.bookButton} onPress={() => router.push('/booking')}>
+                    <Text style={styles.bookButtonText}>Đặt vé</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {/* Coming Soon Section */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>Sắp chiếu</ThemedText>
-          <TouchableOpacity onPress={() => router.push('/movies?tab=coming-soon')}>
-            <Text style={styles.seeAllButton}>Xem tất cả →</Text>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.movieList}>
-          {comingSoonMovies.map((movie) => (
-            <TouchableOpacity key={movie.id} style={styles.movieCard}>
-              <Image
-                source={{ uri: movie.poster }}
-                style={styles.moviePoster}
-                contentFit="cover"
-              />
-              <View style={styles.comingSoonBadge}>
-                <Text style={styles.comingSoonText}>Sắp chiếu</Text>
-              </View>
-              <View style={styles.movieInfo}>
-                <Text style={styles.movieTitle} numberOfLines={2}>{movie.title}</Text>
-                <Text style={styles.releaseDate}>📅 {movie.releaseDate}</Text>
-                <TouchableOpacity style={styles.notifyButton}>
-                  <Text style={styles.notifyButtonText}>Nhận thông báo</Text>
-                </TouchableOpacity>
-              </View>
+      {!loading && !error && comingSoonMovies.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <ThemedText type="subtitle" style={styles.sectionTitle}>Sắp chiếu</ThemedText>
+            <TouchableOpacity onPress={() => router.push('/movies?tab=coming-soon')}>
+              <Text style={styles.seeAllButton}>Xem tất cả →</Text>
             </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.movieList}>
+            {comingSoonMovies.map((movie) => (
+              <TouchableOpacity key={movie.id} style={styles.movieCard}>
+                <Image
+                  source={{ uri: getPosterUrl(movie.poster) }}
+                  style={styles.moviePoster}
+                  contentFit="cover"
+                />
+                <View style={styles.comingSoonBadge}>
+                  <Text style={styles.comingSoonText}>Sắp chiếu</Text>
+                </View>
+                <View style={styles.movieInfo}>
+                  <Text style={styles.movieTitle} numberOfLines={2}>{movie.title}</Text>
+                  <Text style={styles.releaseDate}>
+                    {movie.releaseDate || 'Sắp công bố'}
+                  </Text>
+                  <TouchableOpacity style={styles.notifyButton}>
+                    <Text style={styles.notifyButtonText}>Nhận thông báo</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
+      {/* Empty State */}
+      {!loading && !error && nowShowingMovies.length === 0 && comingSoonMovies.length === 0 && (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>Chưa có phim nào</Text>
+        </View>
+      )}
 
       {/* Bottom Spacing */}
       <View style={styles.bottomSpacing} />
@@ -208,26 +362,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
-  greeting: {
-    fontSize: 14,
-    color: '#999',
-    marginBottom: 4,
-  },
-  appName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  notificationButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#222',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  iconText: {
-    fontSize: 20,
+  logo: {
+    width: 100,
+    height: 100,
+    alignSelf: 'center',
+    marginBottom: 16,
   },
   searchBar: {
     flexDirection: 'row',
@@ -301,6 +440,50 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  loadingText: {
+    color: '#fff',
+    marginTop: 16,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  errorText: {
+    color: '#ff6b6b',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: '#E50914',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    color: '#999',
+    fontSize: 16,
   },
   section: {
     marginTop: 8,
@@ -426,11 +609,5 @@ const styles = StyleSheet.create({
   },
   bottomSpacing: {
     height: 80,
-  },
-  logo: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
-    marginBottom: 16,
   },
 });

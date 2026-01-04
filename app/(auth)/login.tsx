@@ -1,28 +1,41 @@
 import { useAuth } from '@/components/contexts/AuthContext';
 import { Toast } from '@/components/Toast';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Image,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
+} from 'react-native';
+
+const API_URL = 'https://ltud.up.railway.app/api/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [toast, setToast] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState({
+    visible: false,
+    message: '',
+    type: 'error' as 'error' | 'success' | 'info'
+  });
 
   const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
     setToast({ visible: true, message, type });
   };
 
-  const handleLogin = () => {
-    if (!email || !password) {
+  const handleLogin = async () => {
+    // Validation
+    if (!username || !password) {
       showToast('Vui lòng nhập đầy đủ thông tin!', 'error');
-      return;
-    }
-
-    if (!email.includes('@')) {
-      showToast('Email không hợp lệ!', 'error');
       return;
     }
 
@@ -31,11 +44,82 @@ export default function LoginScreen() {
       return;
     }
 
-    console.log('Login:', email, password);
-    showToast('Đăng nhập thành công!', 'success');
-    setTimeout(() => {
+    setLoading(true);
+
+    try {
+      console.log('Sending login request to:', `${API_URL}/login`);
+      console.log('Request data:', { username: username.trim() });
+
+      // Gọi API đăng nhập
+      const response = await axios.post(`${API_URL}/login`, {
+        username: username.trim(),
+        password: password,
+      });
+
+      console.log('Login response status:', response.status);
+      console.log('Full response data:', JSON.stringify(response.data, null, 2));
+
+      // Kiểm tra response structure
+      if (!response.data) {
+        throw new Error('Response data is empty');
+      }
+
+      // Lưu token và thông tin user
+      const { token, id, username: userName, email, roles } = response.data;
+
+      // Debug: Check nếu thiếu field nào
+      console.log('Token:', token ? 'Present' : 'MISSING');
+      console.log('ID:', id);
+      console.log('Username:', userName);
+      console.log('Email:', email);
+      console.log('Roles:', roles);
+
+      if (!token) {
+        throw new Error('Token not found in response');
+      }
+
+      await AsyncStorage.setItem('authToken', token);
+      await AsyncStorage.setItem('userId', id.toString());
+      await AsyncStorage.setItem('username', userName);
+      await AsyncStorage.setItem('email', email || '');
+      await AsyncStorage.setItem('roles', JSON.stringify(roles));
+
+      console.log('Data saved to AsyncStorage');
+
+      showToast('Đăng nhập thành công!', 'success');
+
+      // Cập nhật auth context
       login();
-    }, 1000);
+
+      // Chuyển về home sau 1 giây
+      setTimeout(() => {
+        router.replace('/(tabs)');
+      }, 1000);
+
+    } catch (error: any) {
+      console.error('Login error:', error);
+
+      if (error.response) {
+        // Server trả về lỗi
+        console.error('Response status:', error.response.status);
+        console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+        console.error('Response headers:', JSON.stringify(error.response.headers, null, 2));
+
+        const errorMessage = error.response.data?.message || 'Đăng nhập thất bại!';
+        showToast(errorMessage, 'error');
+      } else if (error.request) {
+        // Không nhận được response
+        console.error('Request error - No response received');
+        console.error('Request:', error.request);
+        showToast('Không thể kết nối đến server!', 'error');
+      } else {
+        // Lỗi khác
+        console.error('Error message:', error.message);
+        showToast(error.message || 'Đã xảy ra lỗi không xác định!', 'error');
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -46,6 +130,7 @@ export default function LoginScreen() {
         type={toast.type}
         onHide={() => setToast({ ...toast, visible: false })}
       />
+
       <View style={styles.card}>
         <Image
           source={require('@/assets/images/LogoCinema.png')}
@@ -55,15 +140,15 @@ export default function LoginScreen() {
         <Text style={styles.heading}>Đăng nhập</Text>
         <Text style={styles.subtitle}>Đặt vé xem phim ngay hôm nay</Text>
 
-        <Text style={styles.label}>Email</Text>
+        <Text style={styles.label}>Tên đăng nhập</Text>
         <TextInput
           style={styles.input}
-          placeholder="Nhập email của bạn"
+          placeholder="Nhập tên đăng nhập"
           placeholderTextColor="#a0a0ab"
-          value={email}
-          onChangeText={setEmail}
-          keyboardType="email-address"
+          value={username}
+          onChangeText={setUsername}
           autoCapitalize="none"
+          editable={!loading}
         />
 
         <Text style={styles.label}>Mật khẩu</Text>
@@ -74,31 +159,56 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           secureTextEntry
+          editable={!loading}
         />
 
-        <TouchableOpacity style={styles.forgotButton}>
-          <Text style={styles.forgotText} onPress={() => router.push('/(auth)/ForgotPasswordScreen')}>
-            Quên mật khẩu?</Text>
+        <TouchableOpacity
+          style={styles.forgotButton}
+          disabled={loading}
+        >
+          <Text
+            style={styles.forgotText}
+            onPress={() => router.push('/(auth)/ForgotPasswordScreen')}
+          >
+            Quên mật khẩu?
+          </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
-          <Text style={styles.loginButtonText}>Đăng nhập</Text>
+        <TouchableOpacity
+          style={[styles.loginButton, loading && styles.loginButtonDisabled]}
+          onPress={handleLogin}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#ffffff" />
+          ) : (
+            <Text style={styles.loginButtonText}>Đăng nhập</Text>
+          )}
         </TouchableOpacity>
 
         <Text style={styles.dividerText}>hoặc tiếp tục với</Text>
 
         <View style={styles.socialRow}>
-          <TouchableOpacity style={styles.socialButton}>
-            <Text style={styles.socialText}>🔵 Google</Text>
+          <TouchableOpacity
+            style={styles.socialButton}
+            disabled={loading}
+          >
+            <Text style={styles.socialText}>Google</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.socialButton}>
-            <Text style={styles.socialText}>📘 Facebook</Text>
+          <TouchableOpacity
+            style={styles.socialButton}
+            disabled={loading}
+          >
+            <Text style={styles.socialText}>Facebook</Text>
           </TouchableOpacity>
         </View>
 
         <Text style={styles.signupText}>
           Chưa có tài khoản?{' '}
-          <Text style={styles.signupLink} onPress={() => router.push('/(auth)/register')}>
+          <Text
+            style={styles.signupLink}
+            onPress={() => !loading && router.push('/(auth)/register')}
+          >
             Đăng ký
           </Text>
         </Text>
@@ -128,11 +238,6 @@ const styles = StyleSheet.create({
     elevation: 8,
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  title: {
-    fontSize: 56,
-    textAlign: 'center',
-    marginBottom: 16,
   },
   heading: {
     fontSize: 32,
@@ -185,6 +290,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
+  },
+  loginButtonDisabled: {
+    opacity: 0.6,
   },
   loginButtonText: {
     color: '#ffffff',

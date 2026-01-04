@@ -1,112 +1,286 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import { Image } from 'expo-image';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-// Mock data
-const allMovies = [
-    {
-        id: 1,
-        title: 'Avatar: The Way of Water',
-        poster: 'https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg',
-        rating: 8.5,
-        genre: 'Action, Sci-Fi',
-        duration: '192 phút',
-        releaseDate: '16/12/2022',
-        status: 'now-showing',
-    },
-    {
-        id: 2,
-        title: 'Spider-Man: No Way Home',
-        poster: 'https://image.tmdb.org/t/p/w500/1g0dhYtq4irTY1GPXvft6k4YLjm.jpg',
-        rating: 9.0,
-        genre: 'Action, Adventure',
-        duration: '148 phút',
-        releaseDate: '17/12/2021',
-        status: 'now-showing',
-    },
-    {
-        id: 3,
-        title: 'The Batman',
-        poster: 'https://image.tmdb.org/t/p/w500/74xTEgt7R36Fpooo50r9T25onhq.jpg',
-        rating: 8.7,
-        genre: 'Action, Crime',
-        duration: '176 phút',
-        releaseDate: '04/03/2022',
-        status: 'now-showing',
-    },
-    {
-        id: 4,
-        title: 'Oppenheimer',
-        poster: 'https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg',
-        rating: 8.9,
-        genre: 'Biography, Drama',
-        duration: '180 phút',
-        releaseDate: '21/07/2024',
-        status: 'coming-soon',
-    },
-    {
-        id: 5,
-        title: 'Barbie',
-        poster: 'https://image.tmdb.org/t/p/w500/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg',
-        rating: 8.3,
-        genre: 'Comedy, Adventure',
-        duration: '114 phút',
-        releaseDate: '21/07/2024',
-        status: 'coming-soon',
-    },
-    {
-        id: 6,
-        title: 'Dune: Part Two',
-        poster: 'https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
-        rating: 8.8,
-        genre: 'Sci-Fi, Adventure',
-        duration: '166 phút',
-        releaseDate: '01/03/2024',
-        status: 'coming-soon',
-    },
-    {
-        id: 7,
-        title: 'Guardians of the Galaxy Vol. 3',
-        poster: 'https://image.tmdb.org/t/p/w500/r2J02Z2OpNTctfOSN1Ydgii51I3.jpg',
-        rating: 8.4,
-        genre: 'Action, Comedy',
-        duration: '150 phút',
-        releaseDate: '05/05/2023',
-        status: 'now-showing',
-    },
-    {
-        id: 8,
-        title: 'John Wick: Chapter 4',
-        poster: 'https://image.tmdb.org/t/p/w500/vZloFAK7NmvMGKE7VkF5UHaz0I.jpg',
-        rating: 8.6,
-        genre: 'Action, Thriller',
-        duration: '169 phút',
-        releaseDate: '24/03/2023',
-        status: 'now-showing',
-    },
-];
+// API Configuration
+const API_BASE_URL = 'https://ltud.up.railway.app';
+
+// Types
+interface Genre {
+    id: number;
+    name: string;
+}
+
+interface Movie {
+    id: number;
+    title: string;
+    description: string;
+    duration: number;
+    rating: number;
+    status: 'NOW_SHOWING' | 'COMING_SOON' | 'ENDED';
+    poster: string;
+    genres: Genre[];
+    releaseDate?: string;
+}
 
 export default function MoviesScreen() {
     const params = useLocalSearchParams();
-    const [selectedTab, setSelectedTab] = useState<'now-showing' | 'coming-soon'>('now-showing');
+    const [selectedTab, setSelectedTab] = useState<'NOW_SHOWING' | 'COMING_SOON'>('NOW_SHOWING');
     const [searchQuery, setSearchQuery] = useState('');
+    const [allMovies, setAllMovies] = useState<Movie[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
         if (params.tab === 'coming-soon') {
-            setSelectedTab('coming-soon');
+            setSelectedTab('COMING_SOON');
         } else if (params.tab === 'now-showing') {
-            setSelectedTab('now-showing');
+            setSelectedTab('NOW_SHOWING');
         }
     }, [params.tab]);
 
+    // Fetch movies từ API
+    useEffect(() => {
+        fetchMovies();
+    }, []);
+
+    // Search movies khi user nhập từ khóa
+    useEffect(() => {
+        const delaySearch = setTimeout(() => {
+            if (searchQuery.trim()) {
+                searchMovies(searchQuery.trim());
+            } else {
+                fetchMovies();
+            }
+        }, 500); // Debounce 500ms
+
+        return () => clearTimeout(delaySearch);
+    }, [searchQuery]);
+
+    const fetchMovies = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            console.log('Fetching movies from:', API_BASE_URL);
+
+            // Lấy token từ AsyncStorage
+            const token = await AsyncStorage.getItem('authToken');
+            console.log('Token:', token ? 'Present' : 'MISSING');
+
+            if (!token) {
+                setError('Vui lòng đăng nhập để xem phim');
+                setLoading(false);
+                return;
+            }
+
+            // Cấu hình headers với token
+            const config = {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            };
+
+            // Fetch tất cả phim
+            const allMoviesResponse = await axios.get(
+                `${API_BASE_URL}/api/customer/movies`,
+                config
+            );
+
+            console.log('Raw response data type:', typeof allMoviesResponse.data);
+
+            // Parse data nếu là string
+            let rawData = allMoviesResponse.data;
+            if (typeof rawData === 'string') {
+                try {
+                    rawData = JSON.parse(rawData);
+                } catch (e) {
+                    console.error('JSON parse error, trying to clean data...');
+                    const cleanedString = rawData.substring(0, rawData.lastIndexOf('}') + 1);
+                    rawData = JSON.parse(cleanedString);
+                }
+            }
+
+            // Xử lý circular reference: chỉ lấy level đầu tiên
+            let movies: Movie[] = [];
+
+            if (Array.isArray(rawData)) {
+                // Clean data để loại bỏ circular reference
+                movies = rawData.map((movie: any) => ({
+                    id: movie.id,
+                    title: movie.title,
+                    description: movie.description,
+                    duration: movie.duration,
+                    rating: movie.rating,
+                    status: movie.status,
+                    poster: movie.posterUrl || movie.poster,
+                    genres: movie.genres?.map((g: any) => ({
+                        id: g.id,
+                        name: g.name,
+                    })) || [],
+                    releaseDate: movie.releaseDate,
+                }));
+            } else {
+                throw new Error('Response is not an array');
+            }
+
+            console.log('Cleaned movies:', movies);
+            setAllMovies(movies);
+
+        } catch (err: any) {
+            console.error('Error fetching movies:', err);
+
+            if (err.response) {
+                console.error('Response status:', err.response.status);
+                console.error('Response data:', err.response.data);
+
+                if (err.response.status === 401) {
+                    setError('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
+                } else {
+                    setError(err.response.data?.message || 'Không thể tải danh sách phim');
+                }
+            } else if (err.request) {
+                console.error('Request error - No response received');
+                setError('Không thể kết nối đến server!');
+            } else {
+                console.error('Error message:', err.message);
+                setError('Đã xảy ra lỗi không xác định!');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const searchMovies = async (keyword: string) => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            console.log('Searching movies with keyword:', keyword);
+
+            // Lấy token từ AsyncStorage
+            const token = await AsyncStorage.getItem('authToken');
+
+            if (!token) {
+                setError('Vui lòng đăng nhập để tìm kiếm phim');
+                setLoading(false);
+                return;
+            }
+
+            // Cấu hình headers và params
+            const config = {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
+                params: {
+                    keyword: keyword
+                }
+            };
+
+            // Gọi API search
+            const searchResponse = await axios.get(
+                `${API_BASE_URL}/api/customer/movies/search`,
+                config
+            );
+
+            console.log('Search response:', searchResponse.data);
+
+            // Parse data nếu là string
+            let rawData = searchResponse.data;
+            if (typeof rawData === 'string') {
+                try {
+                    rawData = JSON.parse(rawData);
+                } catch (e) {
+                    console.error('JSON parse error, trying to clean data...');
+                    const cleanedString = rawData.substring(0, rawData.lastIndexOf('}') + 1);
+                    rawData = JSON.parse(cleanedString);
+                }
+            }
+
+            // Xử lý circular reference
+            let movies: Movie[] = [];
+
+            if (Array.isArray(rawData)) {
+                movies = rawData.map((movie: any) => ({
+                    id: movie.id,
+                    title: movie.title,
+                    description: movie.description,
+                    duration: movie.duration,
+                    rating: movie.rating,
+                    status: movie.status,
+                    poster: movie.posterUrl || movie.poster,
+                    genres: movie.genres?.map((g: any) => ({
+                        id: g.id,
+                        name: g.name,
+                    })) || [],
+                    releaseDate: movie.releaseDate,
+                }));
+            } else {
+                throw new Error('Response is not an array');
+            }
+
+            console.log('Search results:', movies.length);
+            setAllMovies(movies);
+
+        } catch (err: any) {
+
+            // Nếu API search fail (500), fallback về client-side search
+            if (err.response?.status === 500) {
+                console.log('API search failed, using client-side search instead');
+                await fetchMovies(); // Load lại tất cả phim để search ở client
+            } else if (err.response?.status === 401) {
+                setError('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại!');
+            } else if (err.request) {
+                console.error('Request error - No response received');
+                setError('Không thể kết nối đến server!');
+            } else {
+                console.error('Error message:', err.message);
+                setError('Đã xảy ra lỗi không xác định!');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Format poster URL
+    const getPosterUrl = (posterPath: string) => {
+        if (!posterPath) {
+            return 'https://placehold.co/500x750/1a1a1a/666666?text=No+Poster';
+        }
+        if (posterPath.startsWith('http')) {
+            return posterPath;
+        }
+        return `${API_BASE_URL}/${posterPath}`;
+    };
+
+    // Get genres string
+    const getGenresString = (genres: Genre[]) => {
+        if (!genres || genres.length === 0) return 'Chưa phân loại';
+        return genres.map(g => g.name).join(', ');
+    };
+
+    // Format duration
+    const formatDuration = (minutes: number) => {
+        return `${minutes} phút`;
+    };
+
+    // Filter movies
     const filteredMovies = allMovies.filter(movie => {
         const matchesTab = movie.status === selectedTab;
-        const matchesSearch = movie.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            movie.genre.toLowerCase().includes(searchQuery.toLowerCase());
-        return matchesTab && matchesSearch;
+
+        // Nếu có search query, filter ở client side
+        if (searchQuery.trim()) {
+            const matchesSearch = movie.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                getGenresString(movie.genres).toLowerCase().includes(searchQuery.toLowerCase());
+            return matchesTab && matchesSearch;
+        }
+
+        return matchesTab;
     });
 
     return (
@@ -135,93 +309,129 @@ export default function MoviesScreen() {
                 {/* Tabs */}
                 <View style={styles.tabs}>
                     <TouchableOpacity
-                        style={[styles.tab, selectedTab === 'now-showing' && styles.activeTab]}
-                        onPress={() => setSelectedTab('now-showing')}
+                        style={[styles.tab, selectedTab === 'NOW_SHOWING' && styles.activeTab]}
+                        onPress={() => setSelectedTab('NOW_SHOWING')}
                     >
-                        <Text style={[styles.tabText, selectedTab === 'now-showing' && styles.activeTabText]}>
+                        <Text style={[styles.tabText, selectedTab === 'NOW_SHOWING' && styles.activeTabText]}>
                             Đang chiếu
                         </Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                        style={[styles.tab, selectedTab === 'coming-soon' && styles.activeTab]}
-                        onPress={() => setSelectedTab('coming-soon')}
+                        style={[styles.tab, selectedTab === 'COMING_SOON' && styles.activeTab]}
+                        onPress={() => setSelectedTab('COMING_SOON')}
                     >
-                        <Text style={[styles.tabText, selectedTab === 'coming-soon' && styles.activeTabText]}>
+                        <Text style={[styles.tabText, selectedTab === 'COMING_SOON' && styles.activeTabText]}>
                             Sắp chiếu
                         </Text>
                     </TouchableOpacity>
                 </View>
             </ThemedView>
 
+            {/* Loading State */}
+            {loading && (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#E50914" />
+                    <Text style={styles.loadingText}>Đang tải phim...</Text>
+                </View>
+            )}
+
+            {/* Error State */}
+            {error && !loading && (
+                <View style={styles.errorContainer}>
+                    <Text style={styles.errorText}>{error}</Text>
+                    {error.includes('đăng nhập') ? (
+                        <TouchableOpacity
+                            style={styles.retryButton}
+                            onPress={() => router.push('/(auth)/login')}
+                        >
+                            <Text style={styles.retryButtonText}>Đăng nhập</Text>
+                        </TouchableOpacity>
+                    ) : (
+                        <TouchableOpacity style={styles.retryButton} onPress={fetchMovies}>
+                            <Text style={styles.retryButtonText}>Thử lại</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            )}
+
             {/* Movie Grid */}
-            <ScrollView
-                style={styles.movieGrid}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={styles.movieGridContent}
-            >
-                {filteredMovies.length === 0 ? (
-                    <View style={styles.emptyState}>
-                        <Text style={styles.emptyIcon}>🎬</Text>
-                        <Text style={styles.emptyText}>Không tìm thấy phim nào</Text>
-                    </View>
-                ) : (
-                    <View style={styles.gridContainer}>
-                        {filteredMovies.map((movie) => (
-                            <TouchableOpacity
-                                key={movie.id}
-                                style={styles.movieCard}
-                                onPress={() => {
-                                    // Navigate to movie detail
-                                    // router.push(`/movie/${movie.id}`)
-                                }}
-                            >
-                                <Image
-                                    source={{ uri: movie.poster }}
-                                    style={styles.moviePoster}
-                                    contentFit="cover"
-                                />
+            {!loading && !error && (
+                <ScrollView
+                    style={styles.movieGrid}
+                    showsVerticalScrollIndicator={false}
+                    contentContainerStyle={styles.movieGridContent}
+                >
+                    {filteredMovies.length === 0 ? (
+                        <View style={styles.emptyState}>
+                            <Text style={styles.emptyIcon}>🎬</Text>
+                            <Text style={styles.emptyText}>
+                                {searchQuery ? 'Không tìm thấy phim nào' : 'Chưa có phim nào'}
+                            </Text>
+                        </View>
+                    ) : (
+                        <View style={styles.gridContainer}>
+                            {filteredMovies.map((movie) => (
+                                <TouchableOpacity
+                                    key={movie.id}
+                                    style={styles.movieCard}
+                                    onPress={() => {
+                                        // Navigate to movie detail
+                                        // router.push(`/movie/${movie.id}`)
+                                    }}
+                                >
+                                    <Image
+                                        source={{ uri: getPosterUrl(movie.poster) }}
+                                        style={styles.moviePoster}
+                                        contentFit="cover"
+                                    />
 
-                                {/* Rating Badge */}
-                                <View style={styles.ratingBadge}>
-                                    <Text style={styles.starIcon}>⭐</Text>
-                                    <Text style={styles.ratingText}>{movie.rating}</Text>
-                                </View>
-
-                                {/* Status Badge */}
-                                {movie.status === 'coming-soon' && (
-                                    <View style={styles.comingSoonBadge}>
-                                        <Text style={styles.comingSoonText}>Sắp chiếu</Text>
+                                    {/* Rating Badge */}
+                                    <View style={styles.ratingBadge}>
+                                        <Text style={styles.starIcon}>⭐</Text>
+                                        <Text style={styles.ratingText}>{movie.rating.toFixed(1)}</Text>
                                     </View>
-                                )}
 
-                                {/* Movie Info */}
-                                <View style={styles.movieInfo}>
-                                    <Text style={styles.movieTitle} numberOfLines={2}>
-                                        {movie.title}
-                                    </Text>
-                                    <Text style={styles.movieMeta}>
-                                        {movie.genre}
-                                    </Text>
-                                    <Text style={styles.movieMeta}>
-                                        ⏱️ {movie.duration}
-                                    </Text>
-
-                                    {movie.status === 'now-showing' ? (
-                                        <TouchableOpacity style={styles.bookButton} onPress={() => router.push('/booking')}>
-                                            <Text style={styles.bookButtonText}>Đặt vé</Text>
-                                        </TouchableOpacity>
-                                    ) : (
-                                        <View style={styles.releaseInfo}>
-                                            <Text style={styles.releaseDate}>📅 {movie.releaseDate}</Text>
+                                    {/* Status Badge */}
+                                    {movie.status === 'COMING_SOON' && (
+                                        <View style={styles.comingSoonBadge}>
+                                            <Text style={styles.comingSoonText}>Sắp chiếu</Text>
                                         </View>
                                     )}
-                                </View>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                )}
-            </ScrollView>
+
+                                    {/* Movie Info */}
+                                    <View style={styles.movieInfo}>
+                                        <Text style={styles.movieTitle} numberOfLines={2}>
+                                            {movie.title}
+                                        </Text>
+                                        <Text style={styles.movieMeta}>
+                                            {getGenresString(movie.genres)}
+                                        </Text>
+                                        <Text style={styles.movieMeta}>
+                                            ⏱️ {formatDuration(movie.duration)}
+                                        </Text>
+
+                                        {movie.status === 'NOW_SHOWING' ? (
+                                            <TouchableOpacity
+                                                style={styles.bookButton}
+                                                onPress={() => router.push('/booking')}
+                                            >
+                                                <Text style={styles.bookButtonText}>Đặt vé</Text>
+                                            </TouchableOpacity>
+                                        ) : (
+                                            <View style={styles.releaseInfo}>
+                                                <Text style={styles.releaseDate}>
+                                                    📅 {movie.releaseDate || 'Sắp công bố'}
+                                                </Text>
+                                            </View>
+                                        )}
+                                    </View>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+                    )}
+                </ScrollView>
+            )}
         </View>
     );
 }
@@ -290,20 +500,54 @@ const styles = StyleSheet.create({
     activeTabText: {
         color: '#fff',
     },
+    loadingContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 40,
+    },
+    loadingText: {
+        color: '#fff',
+        marginTop: 16,
+        fontSize: 16,
+    },
+    errorContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 40,
+    },
+    errorText: {
+        color: '#ff6b6b',
+        fontSize: 16,
+        textAlign: 'center',
+        marginBottom: 16,
+    },
+    retryButton: {
+        backgroundColor: '#E50914',
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        borderRadius: 8,
+    },
+    retryButtonText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: 'bold',
+    },
     movieGrid: {
         flex: 1,
     },
     gridContainer: {
         flexDirection: 'row',
         flexWrap: 'wrap',
-        gap: 16,
+        justifyContent: 'space-between',
     },
     movieCard: {
-        width: '47%',
-        marginBottom: 8,
+        width: '48%',
+        marginBottom: 16,
     },
     movieGridContent: {
-        padding: 20,
+        padding: 16,
         paddingBottom: 100,
     },
     moviePoster: {
