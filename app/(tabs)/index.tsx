@@ -206,7 +206,7 @@ export default function HomeScreen() {
 
       {/* Quick Actions */}
       <View style={styles.quickActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/movies?tab=now-showing')}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => router.push('/booking')}>
           <View style={styles.actionIcon}>
             <Text style={styles.actionEmoji}>🎫</Text>
           </View>
@@ -287,7 +287,7 @@ export default function HomeScreen() {
                 <View style={styles.movieInfo}>
                   <Text style={styles.movieTitle} numberOfLines={2}>{movie.title}</Text>
                   <Text style={styles.movieGenre}>{getGenresString(movie.genres)}</Text>
-                  <TouchableOpacity style={styles.bookButton} onPress={() => router.push('/booking')}>
+                  <TouchableOpacity style={styles.bookButton} onPress={() => router.push(`/booking?movieId=${movie.id}`)}>
                     <Text style={styles.bookButtonText}>Đặt vé</Text>
                   </TouchableOpacity>
                 </View>

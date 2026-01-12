@@ -1,17 +1,30 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
-import { router } from 'expo-router';
+import axios from 'axios';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
+// API Configuration
+const API_BASE_URL = 'https://ltud.up.railway.app';
+
 // Types
+interface Genre {
+    id: number;
+    name: string;
+}
+
 interface Movie {
+    id: number;
     title: string;
-    poster: string;
-    duration: string;
-    genre: string;
+    description: string;
+    duration: number;
     rating: number;
+    status: string;
+    poster: string;
+    genres: Genre[];
 }
 
 interface Cinema {
@@ -20,19 +33,29 @@ interface Cinema {
     address: string;
 }
 
+interface Room {
+    id: number;
+    name: string;
+    capacity: number;
+    cinema: Cinema;
+}
+
 interface Showtime {
     id: number;
-    time: string;
-    type: string;
+    startTime: string;
+    endTime: string;
     price: number;
+    movie: Movie;
+    room: Room;
 }
 
 interface Seat {
-    id: string;
-    row: string;
+    id: number;
+    rowSeat: string;
     number: number;
-    isBooked: boolean;
-    isVIP: boolean;
+    type: 'NORMAL' | 'VIP';
+    status: 'AVAILABLE' | 'BOOKED' | 'RESERVED';
+    room: Room;
 }
 
 interface FoodItem {
@@ -43,30 +66,7 @@ interface FoodItem {
     category: 'combo' | 'snack' | 'drink';
 }
 
-// Mock data
-const movie: Movie = {
-    title: 'Avatar: The Way of Water',
-    poster: 'https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg',
-    duration: '192 phút',
-    genre: 'Action, Sci-Fi',
-    rating: 8.5,
-};
-
-const cinemas: Cinema[] = [
-    { id: 1, name: 'CGV Vincom', address: 'Vincom Center, Q1' },
-    { id: 2, name: 'CGV Aeon Mall', address: 'Aeon Mall Tân Phú' },
-    { id: 3, name: 'Lotte Cinema', address: 'Lotte Mart, Q7' },
-];
-
-const showtimes: Showtime[] = [
-    { id: 1, time: '09:00', type: '2D', price: 85000 },
-    { id: 2, time: '11:30', type: '2D', price: 85000 },
-    { id: 3, time: '14:00', type: '3D', price: 120000 },
-    { id: 4, time: '16:30', type: '2D', price: 85000 },
-    { id: 5, time: '19:00', type: '3D', price: 120000 },
-    { id: 6, time: '21:30', type: '2D', price: 85000 },
-];
-
+// Mock food data
 const foodItems: FoodItem[] = [
     { id: 1, name: 'Combo 1 (Bỏng + Nước)', price: 89000, image: '🍿', category: 'combo' },
     { id: 2, name: 'Combo 2 (Bỏng + 2 Nước)', price: 129000, image: '🍿', category: 'combo' },
@@ -80,50 +80,187 @@ const foodItems: FoodItem[] = [
     { id: 10, name: 'Nước suối', price: 15000, image: '💧', category: 'drink' },
 ];
 
-const generateSeats = (): Seat[] => {
-    const rows = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-    const seats: Seat[] = [];
-
-    rows.forEach(row => {
-        for (let i = 1; i <= 10; i++) {
-            const seatNumber = `${row}${i}`;
-            const isBooked = Math.random() > 0.7;
-            seats.push({
-                id: seatNumber,
-                row,
-                number: i,
-                isBooked,
-                isVIP: row === 'G' || row === 'H',
-            });
-        }
-    });
-
-    return seats;
-};
-
 export default function BookingScreen() {
+    const params = useLocalSearchParams();
+    const movieIdFromParams = params.movieId ? parseInt(params.movieId as string) : null;
     const [step, setStep] = useState<number>(1);
-    const [selectedCinema, setSelectedCinema] = useState<Cinema | null>(null);
+    const [loading, setLoading] = useState<boolean>(false);
+    const [error, setError] = useState<string | null>(null);
+    const [expandedCinemaId, setExpandedCinemaId] = useState<number | null>(null);
+
+    // Data từ API
+    const [movies, setMovies] = useState<Movie[]>([]);
+    const [showtimes, setShowtimes] = useState<Showtime[]>([]);
+    const [seats, setSeats] = useState<Seat[]>([]);
+
+    // Selected states
+    const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
     const [selectedShowtime, setSelectedShowtime] = useState<Showtime | null>(null);
-    const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
-    const [seats, setSeats] = useState<Seat[]>(generateSeats());
+    const [selectedSeats, setSelectedSeats] = useState<number[]>([]);
     const [foodCart, setFoodCart] = useState<{ [key: number]: number }>({});
     const [selectedCategory, setSelectedCategory] = useState<'combo' | 'snack' | 'drink'>('combo');
 
-    // Reset tất cả state khi tab được focus
+    // Reset khi focus
     useFocusEffect(
         useCallback(() => {
-            setStep(1);
-            setSelectedCinema(null);
-            setSelectedShowtime(null);
-            setSelectedSeats([]);
-            setSeats(generateSeats());
-            setFoodCart({});
-            setSelectedCategory('combo');
-        }, [])
+            const initBooking = async () => {
+                await fetchMovies();
+
+                if (movieIdFromParams && movies.length === 0) {
+                    return;
+                }
+
+                if (movieIdFromParams && movies.length > 0) {
+                    const selectedMovie = movies.find(m => m.id === movieIdFromParams);
+                    if (selectedMovie) {
+                        setSelectedMovie(selectedMovie);
+                        await fetchShowtimes(movieIdFromParams);
+                        setStep(2);
+                    }
+                } else {
+                    resetBooking();
+                }
+            };
+
+            initBooking();
+        }, [movieIdFromParams, movies.length])
     );
 
-    const toggleSeat = (seatId: string) => {
+    const resetBooking = () => {
+        setStep(1);
+        setSelectedMovie(null);
+        setSelectedShowtime(null);
+        setSelectedSeats([]);
+        setFoodCart({});
+        setSelectedCategory('combo');
+        setError(null);
+    };
+
+    const fetchMovies = async () => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) {
+                setError('Vui lòng đăng nhập để đặt vé');
+                return;
+            }
+
+            const config = {
+                headers: { 'Authorization': `Bearer ${token}` }
+            };
+
+            const response = await axios.get(
+                `${API_BASE_URL}/api/customer/movies`,
+                config
+            );
+
+            let data = response.data;
+            if (typeof data === 'string') {
+                data = JSON.parse(data);
+            }
+
+            const cleanedMovies = Array.isArray(data)
+                ? data
+                    .filter((movie: any) => movie.status === 'NOW_SHOWING')
+                    .map((movie: any) => ({
+                        id: movie.id,
+                        title: movie.title,
+                        description: movie.description,
+                        duration: movie.duration,
+                        rating: movie.rating,
+                        status: movie.status,
+                        poster: movie.posterUrl || movie.poster,
+                        genres: movie.genres?.map((g: any) => ({ id: g.id, name: g.name })) || [],
+                    }))
+                : [];
+
+            setMovies(cleanedMovies);
+
+        } catch (err: any) {
+            console.error('Error fetching movies:', err);
+
+            if (err.response?.status === 500) {
+                setError('Lỗi server. Vui lòng thử lại sau hoặc liên hệ admin.');
+            } else if (err.response?.status === 401) {
+                setError('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+            } else {
+                setError('Không thể tải danh sách phim. Vui lòng kiểm tra kết nối.');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchShowtimes = async (movieId: number) => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) return;
+
+            const config = {
+                headers: { 'Authorization': `Bearer ${token}` }
+            };
+
+            const response = await axios.get(
+                `${API_BASE_URL}/api/customer/showtimes`,
+                config
+            );
+
+            let data = response.data;
+            if (typeof data === 'string') {
+                data = JSON.parse(data);
+            }
+
+            const filteredShowtimes = Array.isArray(data)
+                ? data.filter((showtime: any) => showtime.movie.id === movieId)
+                : [];
+
+            setShowtimes(filteredShowtimes);
+
+        } catch (err: any) {
+            console.error('Error fetching showtimes:', err);
+            setError('Không thể tải lịch chiếu');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchSeats = async (roomId: number) => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) return;
+
+            const config = {
+                headers: { 'Authorization': `Bearer ${token}` }
+            };
+
+            const response = await axios.get(
+                `${API_BASE_URL}/api/customer/seats/room/${roomId}`,
+                config
+            );
+
+            let data = response.data;
+            if (typeof data === 'string') {
+                data = JSON.parse(data);
+            }
+
+            setSeats(Array.isArray(data) ? data : []);
+        } catch (err: any) {
+            console.error('Error fetching seats:', err);
+            setError('Không thể tải sơ đồ ghế');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const toggleSeat = (seatId: number) => {
         if (selectedSeats.includes(seatId)) {
             setSelectedSeats(selectedSeats.filter(id => id !== seatId));
         } else {
@@ -144,14 +281,15 @@ export default function BookingScreen() {
     };
 
     const calculateTicketTotal = (): number => {
-        const showtimePrice = selectedShowtime?.price || 0;
+        if (!selectedShowtime) return 0;
+
         const vipSeats = selectedSeats.filter(seatId => {
             const seat = seats.find(s => s.id === seatId);
-            return seat?.isVIP;
+            return seat?.type === 'VIP';
         }).length;
         const normalSeats = selectedSeats.length - vipSeats;
 
-        return (normalSeats * showtimePrice) + (vipSeats * (showtimePrice + 20000));
+        return (normalSeats * selectedShowtime.price) + (vipSeats * (selectedShowtime.price + 20000));
     };
 
     const calculateFoodTotal = (): number => {
@@ -165,6 +303,16 @@ export default function BookingScreen() {
         return calculateTicketTotal() + calculateFoodTotal();
     };
 
+    const formatTime = (dateString: string): string => {
+        const date = new Date(dateString);
+        return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const getGenresString = (genres: Genre[]): string => {
+        if (!genres || genres.length === 0) return 'Chưa phân loại';
+        return genres.map(g => g.name).join(', ');
+    };
+
     const renderStepIndicator = () => (
         <View style={styles.stepIndicator}>
             {[1, 2, 3, 4].map(num => (
@@ -175,7 +323,7 @@ export default function BookingScreen() {
                         </Text>
                     </View>
                     <Text style={styles.stepLabel}>
-                        {num === 1 ? 'Rạp' : num === 2 ? 'Suất' : num === 3 ? 'Ghế' : 'Đồ ăn'}
+                        {num === 1 ? 'Phim' : num === 2 ? 'Rạp/Suất' : num === 3 ? 'Ghế' : 'Đồ ăn'}
                     </Text>
                     {num < 4 && <View style={[styles.stepLine, step > num && styles.stepLineActive]} />}
                 </View>
@@ -183,36 +331,50 @@ export default function BookingScreen() {
         </View>
     );
 
-    const renderCinemaSelection = () => (
+    const renderMovieSelection = () => (
         <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Chọn rạp chiếu</Text>
-            <Text style={styles.dateText}>📅 Thứ 6, 15/12/2025</Text>
+            <Text style={styles.sectionTitle}>Chọn phim</Text>
 
-            {cinemas.map(cinema => (
+            {loading && (
+                <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#E50914" />
+                </View>
+            )}
+
+            {error && (
+                <View style={styles.errorContainer}>
+                    <Text style={styles.errorText}>{error}</Text>
+                </View>
+            )}
+
+            {!loading && !error && movies.map(movie => (
                 <TouchableOpacity
-                    key={cinema.id}
+                    key={movie.id}
                     style={[
-                        styles.cinemaCard,
-                        selectedCinema?.id === cinema.id && styles.cinemaCardSelected
+                        styles.movieCard,
+                        selectedMovie?.id === movie.id && styles.movieCardSelected
                     ]}
-                    onPress={() => setSelectedCinema(cinema)}
+                    onPress={() => {
+                        setSelectedMovie(movie);
+                        fetchShowtimes(movie.id);
+                    }}
                 >
-                    <View style={styles.cinemaIcon}>
-                        <Text style={styles.cinemaEmoji}>🎬</Text>
-                    </View>
-                    <View style={styles.cinemaInfo}>
-                        <Text style={styles.cinemaName}>{cinema.name}</Text>
-                        <Text style={styles.cinemaAddress}>{cinema.address}</Text>
+                    <View style={styles.movieInfo}>
+                        <Text style={styles.movieTitle}>{movie.title}</Text>
+                        <Text style={styles.movieMeta}>
+                            {getGenresString(movie.genres)} • {movie.duration} phút
+                        </Text>
+                        <Text style={styles.movieRating}>⭐ {movie.rating.toFixed(1)}</Text>
                     </View>
                     <View style={styles.checkmark}>
-                        {selectedCinema?.id === cinema.id && <Text style={styles.checkmarkText}>✓</Text>}
+                        {selectedMovie?.id === movie.id && <Text style={styles.checkmarkText}>✓</Text>}
                     </View>
                 </TouchableOpacity>
             ))}
 
             <TouchableOpacity
-                style={[styles.nextButton, !selectedCinema && styles.nextButtonDisabled]}
-                disabled={!selectedCinema}
+                style={[styles.nextButton, (!selectedMovie || showtimes.length === 0) && styles.nextButtonDisabled]}
+                disabled={!selectedMovie || showtimes.length === 0}
                 onPress={() => setStep(2)}
             >
                 <Text style={styles.nextButtonText}>Tiếp tục</Text>
@@ -220,146 +382,222 @@ export default function BookingScreen() {
         </View>
     );
 
-    const renderShowtimeSelection = () => (
-        <View style={styles.section}>
-            <TouchableOpacity style={styles.backButton} onPress={() => setStep(1)}>
-                <Text style={styles.backButtonText}>← Quay lại</Text>
-            </TouchableOpacity>
+    const renderCinemaAndShowtimeSelection = () => {
+        const showtimesByCinema: { [key: number]: Showtime[] } = {};
+        showtimes.forEach(showtime => {
+            const cinemaId = showtime.room.cinema.id;
+            if (!showtimesByCinema[cinemaId]) {
+                showtimesByCinema[cinemaId] = [];
+            }
+            showtimesByCinema[cinemaId].push(showtime);
+        });
 
-            <Text style={styles.sectionTitle}>Chọn suất chiếu</Text>
-            <Text style={styles.selectedCinema}>🎬 {selectedCinema?.name}</Text>
+        return (
+            <View style={styles.section}>
+                <TouchableOpacity style={styles.backButton} onPress={() => setStep(1)}>
+                    <Text style={styles.backButtonText}>← Quay lại</Text>
+                </TouchableOpacity>
 
-            <View style={styles.showtimeGrid}>
-                {showtimes.map(showtime => (
-                    <TouchableOpacity
-                        key={showtime.id}
-                        style={[
-                            styles.showtimeCard,
-                            selectedShowtime?.id === showtime.id && styles.showtimeCardSelected
-                        ]}
-                        onPress={() => setSelectedShowtime(showtime)}
-                    >
-                        <Text style={[
-                            styles.showtimeTime,
-                            selectedShowtime?.id === showtime.id && styles.showtimeTimeSelected
-                        ]}>
-                            {showtime.time}
-                        </Text>
-                        <Text style={[
-                            styles.showtimeType,
-                            selectedShowtime?.id === showtime.id && styles.showtimeTypeSelected
-                        ]}>
-                            {showtime.type}
-                        </Text>
-                        <Text style={[
-                            styles.showtimePrice,
-                            selectedShowtime?.id === showtime.id && styles.showtimePriceSelected
-                        ]}>
-                            {showtime.price.toLocaleString('vi-VN')}đ
-                        </Text>
-                    </TouchableOpacity>
-                ))}
+                <Text style={styles.sectionTitle}>Chọn rạp & suất chiếu</Text>
+                <Text style={styles.selectedInfo}>🎬 {selectedMovie?.title}</Text>
+
+                {loading && (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#E50914" />
+                    </View>
+                )}
+
+                {!loading && Object.entries(showtimesByCinema).map(([cinemaId, cinemaShowtimes]) => {
+                    const cinema = cinemaShowtimes[0].room.cinema;
+                    const isExpanded = expandedCinemaId === parseInt(cinemaId);
+
+                    return (
+                        <View key={cinemaId} style={styles.cinemaGroup}>
+                            {/* Header rạp - có thể click để expand/collapse */}
+                            <TouchableOpacity
+                                style={styles.cinemaHeader}
+                                onPress={() => setExpandedCinemaId(isExpanded ? null : parseInt(cinemaId))}
+                            >
+                                <View style={styles.cinemaIcon}>
+                                    <Text style={styles.cinemaEmoji}>🎬</Text>
+                                </View>
+                                <View style={styles.cinemaHeaderInfo}>
+                                    <Text style={styles.cinemaName}>{cinema.name}</Text>
+                                    <Text style={styles.cinemaAddress}>{cinema.address}</Text>
+                                </View>
+                                {/* Icon mũi tên */}
+                                <Text style={styles.expandIcon}>
+                                    {isExpanded ? '▼' : '▶'}
+                                </Text>
+                            </TouchableOpacity>
+
+                            {/* Danh sách suất chiếu - chỉ hiện khi expanded */}
+                            {isExpanded && (
+                                <View style={styles.showtimeGrid}>
+                                    {cinemaShowtimes.map(showtime => (
+                                        <TouchableOpacity
+                                            key={showtime.id}
+                                            style={[
+                                                styles.showtimeCard,
+                                                selectedShowtime?.id === showtime.id && styles.showtimeCardSelected
+                                            ]}
+                                            onPress={() => {
+                                                setSelectedShowtime(showtime);
+                                                fetchSeats(showtime.room.id);
+                                            }}
+                                        >
+                                            <Text style={[
+                                                styles.showtimeTime,
+                                                selectedShowtime?.id === showtime.id && styles.showtimeTimeSelected
+                                            ]}>
+                                                {formatTime(showtime.startTime)}
+                                            </Text>
+                                            <Text style={[
+                                                styles.showtimeType,
+                                                selectedShowtime?.id === showtime.id && styles.showtimeTypeSelected
+                                            ]}>
+                                                {showtime.room.name}
+                                            </Text>
+                                            <Text style={[
+                                                styles.showtimePrice,
+                                                selectedShowtime?.id === showtime.id && styles.showtimePriceSelected
+                                            ]}>
+                                                {showtime.price.toLocaleString('vi-VN')}đ
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
+                            )}
+                        </View>
+                    );
+                })}
+
+                <TouchableOpacity
+                    style={[styles.nextButton, !selectedShowtime && styles.nextButtonDisabled]}
+                    disabled={!selectedShowtime}
+                    onPress={() => setStep(3)}
+                >
+                    <Text style={styles.nextButtonText}>Tiếp tục</Text>
+                </TouchableOpacity>
             </View>
+        );
+    };
 
-            <TouchableOpacity
-                style={[styles.nextButton, !selectedShowtime && styles.nextButtonDisabled]}
-                disabled={!selectedShowtime}
-                onPress={() => setStep(3)}
-            >
-                <Text style={styles.nextButtonText}>Tiếp tục</Text>
-            </TouchableOpacity>
-        </View>
-    );
+    const renderSeatSelection = () => {
+        const seatsByRow: { [key: string]: Seat[] } = {};
+        seats.forEach(seat => {
+            const row = seat.rowSeat.charAt(0);
+            if (!row) return;
+            if (!seatsByRow[row]) {
+                seatsByRow[row] = [];
+            }
+            seatsByRow[row].push(seat);
+        });
 
-    const renderSeatSelection = () => (
-        <View style={styles.section}>
-            <TouchableOpacity style={styles.backButton} onPress={() => setStep(2)}>
-                <Text style={styles.backButtonText}>← Quay lại</Text>
-            </TouchableOpacity>
+        const rows = Object.keys(seatsByRow).sort();
 
-            <Text style={styles.sectionTitle}>Chọn ghế ngồi</Text>
+        return (
+            <View style={styles.section}>
+                <TouchableOpacity style={styles.backButton} onPress={() => setStep(2)}>
+                    <Text style={styles.backButtonText}>← Quay lại</Text>
+                </TouchableOpacity>
 
-            {/* Screen */}
-            <View style={styles.screenContainer}>
-                <View style={styles.screen}>
-                    <Text style={styles.screenText}>Màn hình</Text>
+                <Text style={styles.sectionTitle}>Chọn ghế ngồi</Text>
+
+                <View style={styles.screenContainer}>
+                    <View style={styles.screen}>
+                        <Text style={styles.screenText}>Màn hình</Text>
+                    </View>
                 </View>
-            </View>
 
-            {/* Seats */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={styles.seatsContainer}>
-                    {['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'].map(row => (
-                        <View key={row} style={styles.seatRow}>
-                            <Text style={styles.rowLabel}>{row}</Text>
-                            {seats.filter(seat => seat.row === row).map(seat => (
-                                <TouchableOpacity
-                                    key={seat.id}
-                                    style={[
-                                        styles.seat,
-                                        seat.isBooked && styles.seatBooked,
-                                        seat.isVIP && !seat.isBooked && styles.seatVIP,
-                                        selectedSeats.includes(seat.id) && styles.seatSelected,
-                                    ]}
-                                    disabled={seat.isBooked}
-                                    onPress={() => toggleSeat(seat.id)}
-                                >
-                                    <Text style={[
-                                        styles.seatText,
-                                        (seat.isBooked || selectedSeats.includes(seat.id)) && styles.seatTextLight
-                                    ]}>
-                                        {seat.number}
-                                    </Text>
-                                </TouchableOpacity>
+                {loading && (
+                    <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="large" color="#E50914" />
+                    </View>
+                )}
+
+                {!loading && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                        <View style={styles.seatsContainer}>
+                            {rows.map(row => (
+                                <View key={row} style={styles.seatRow}>
+                                    <Text style={styles.rowLabel}>{row}</Text>
+                                    {seatsByRow[row]
+                                        .sort((a, b) => a.number - b.number)
+                                        .map(seat => (
+                                            <TouchableOpacity
+                                                key={seat.id}
+                                                style={[
+                                                    styles.seat,
+                                                    seat.status === 'BOOKED' && styles.seatBooked,
+                                                    seat.type === 'VIP' && seat.status !== 'BOOKED' && styles.seatVIP,
+                                                    selectedSeats.includes(seat.id) && styles.seatSelected,
+                                                ]}
+                                                disabled={seat.status === 'BOOKED'}
+                                                onPress={() => toggleSeat(seat.id)}
+                                            >
+                                                <Text style={[
+                                                    styles.seatText,
+                                                    (seat.status === 'BOOKED' || selectedSeats.includes(seat.id)) && styles.seatTextLight
+                                                ]}>
+                                                    {/* Sửa từ seat.seatNumber.substring(1) thành seat.number */}
+                                                    {seat.number}
+                                                </Text>
+                                            </TouchableOpacity>
+                                        ))}
+                                </View>
                             ))}
                         </View>
-                    ))}
-                </View>
-            </ScrollView>
+                    </ScrollView>
+                )}
 
-            {/* Legend */}
-            <View style={styles.legend}>
-                <View style={styles.legendItem}>
-                    <View style={[styles.legendBox, styles.seatAvailable]} />
-                    <Text style={styles.legendText}>Trống</Text>
+                <View style={styles.legend}>
+                    <View style={styles.legendItem}>
+                        <View style={[styles.legendBox, styles.seatAvailable]} />
+                        <Text style={styles.legendText}>Trống</Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                        <View style={[styles.legendBox, styles.seatVIP]} />
+                        <Text style={styles.legendText}>VIP</Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                        <View style={[styles.legendBox, styles.seatSelected]} />
+                        <Text style={styles.legendText}>Đang chọn</Text>
+                    </View>
+                    <View style={styles.legendItem}>
+                        <View style={[styles.legendBox, styles.seatBooked]} />
+                        <Text style={styles.legendText}>Đã đặt</Text>
+                    </View>
                 </View>
-                <View style={styles.legendItem}>
-                    <View style={[styles.legendBox, styles.seatVIP]} />
-                    <Text style={styles.legendText}>VIP</Text>
-                </View>
-                <View style={styles.legendItem}>
-                    <View style={[styles.legendBox, styles.seatSelected]} />
-                    <Text style={styles.legendText}>Đang chọn</Text>
-                </View>
-                <View style={styles.legendItem}>
-                    <View style={[styles.legendBox, styles.seatBooked]} />
-                    <Text style={styles.legendText}>Đã đặt</Text>
-                </View>
+
+                {selectedSeats.length > 0 && (
+                    <View style={styles.selectedSeatInfo}>
+                        <View>
+                            <Text style={styles.selectedLabel}>Ghế đã chọn:</Text>
+                            <Text style={styles.selectedSeatsText}>
+                                {selectedSeats.map(id => {
+                                    const seat = seats.find(s => s.id === id);
+                                    return seat ? `${seat.rowSeat}${seat.number}` : '';
+                                }).join(', ')}
+                            </Text>
+                        </View>
+                        <View>
+                            <Text style={styles.totalLabel}>Tiền vé:</Text>
+                            <Text style={styles.totalAmount}>{calculateTicketTotal().toLocaleString('vi-VN')}đ</Text>
+                        </View>
+                    </View>
+                )}
+
+                <TouchableOpacity
+                    style={[styles.nextButton, selectedSeats.length === 0 && styles.nextButtonDisabled]}
+                    disabled={selectedSeats.length === 0}
+                    onPress={() => setStep(4)}
+                >
+                    <Text style={styles.nextButtonText}>Tiếp tục</Text>
+                </TouchableOpacity>
             </View>
-
-            {/* Selected Info */}
-            {selectedSeats.length > 0 && (
-                <View style={styles.selectedInfo}>
-                    <View>
-                        <Text style={styles.selectedLabel}>Ghế đã chọn:</Text>
-                        <Text style={styles.selectedSeats}>{selectedSeats.join(', ')}</Text>
-                    </View>
-                    <View>
-                        <Text style={styles.totalLabel}>Tiền vé:</Text>
-                        <Text style={styles.totalAmount}>{calculateTicketTotal().toLocaleString('vi-VN')}đ</Text>
-                    </View>
-                </View>
-            )}
-
-            <TouchableOpacity
-                style={[styles.nextButton, selectedSeats.length === 0 && styles.nextButtonDisabled]}
-                disabled={selectedSeats.length === 0}
-                onPress={() => setStep(4)}
-            >
-                <Text style={styles.nextButtonText}>Tiếp tục</Text>
-            </TouchableOpacity>
-        </View>
-    );
+        );
+    };
 
     const renderFoodSelection = () => {
         const filteredItems = foodItems.filter(item => item.category === selectedCategory);
@@ -373,7 +611,6 @@ export default function BookingScreen() {
                 <Text style={styles.sectionTitle}>Chọn đồ ăn & nước uống</Text>
                 <Text style={styles.foodSubtitle}>Thêm đồ ăn để trải nghiệm tốt hơn</Text>
 
-                {/* Category Tabs */}
                 <View style={styles.categoryTabs}>
                     <TouchableOpacity
                         style={[styles.categoryTab, selectedCategory === 'combo' && styles.categoryTabActive]}
@@ -401,7 +638,6 @@ export default function BookingScreen() {
                     </TouchableOpacity>
                 </View>
 
-                {/* Food Items */}
                 <ScrollView style={styles.foodList} showsVerticalScrollIndicator={false}>
                     {filteredItems.map(item => (
                         <View key={item.id} style={styles.foodItem}>
@@ -442,7 +678,6 @@ export default function BookingScreen() {
                     ))}
                 </ScrollView>
 
-                {/* Cart Summary */}
                 {Object.keys(foodCart).length > 0 && (
                     <View style={styles.cartSummary}>
                         <View style={styles.cartRow}>
@@ -474,20 +709,23 @@ export default function BookingScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Đặt vé xem phim</Text>
-                <Text style={styles.movieTitle}>{movie.title}</Text>
-                <Text style={styles.movieInfo}>{movie.genre} • {movie.duration}</Text>
+                {selectedMovie && (
+                    <>
+                        <Text style={styles.movieTitleHeader}>{selectedMovie.title}</Text>
+                        <Text style={styles.movieInfoHeader}>
+                            {getGenresString(selectedMovie.genres)} • {selectedMovie.duration} phút
+                        </Text>
+                    </>
+                )}
             </View>
 
-            {/* Step Indicator */}
             {renderStepIndicator()}
 
-            {/* Content */}
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                {step === 1 && renderCinemaSelection()}
-                {step === 2 && renderShowtimeSelection()}
+                {step === 1 && renderMovieSelection()}
+                {step === 2 && renderCinemaAndShowtimeSelection()}
                 {step === 3 && renderSeatSelection()}
                 {step === 4 && renderFoodSelection()}
 
@@ -504,23 +742,21 @@ const styles = StyleSheet.create({
     },
     header: {
         padding: 20,
-        paddingTop: 60,
+        paddingTop: 50,
         backgroundColor: '#111',
-        borderBottomWidth: 1,
-        borderBottomColor: '#222',
     },
     headerTitle: {
         fontSize: 16,
         color: '#999',
         marginBottom: 8,
     },
-    movieTitle: {
+    movieTitleHeader: {
         fontSize: 20,
         fontWeight: 'bold',
         color: '#fff',
         marginBottom: 4,
     },
-    movieInfo: {
+    movieInfoHeader: {
         fontSize: 14,
         color: '#999',
     },
@@ -528,8 +764,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'center',
         alignItems: 'center',
-        padding: 20,
+        paddingHorizontal: 20,
+        paddingVertical: 16,
         backgroundColor: '#111',
+        borderBottomWidth: 1,
+        borderBottomColor: '#222',
     },
     stepItem: {
         flexDirection: 'row',
@@ -558,9 +797,10 @@ const styles = StyleSheet.create({
         color: '#fff',
     },
     stepLabel: {
-        fontSize: 12,
+        fontSize: 10,
         color: '#666',
-        marginLeft: 8,
+        marginLeft: 6,
+        marginRight: 4,
     },
     stepLine: {
         width: 30,
@@ -583,10 +823,62 @@ const styles = StyleSheet.create({
         color: '#fff',
         marginBottom: 16,
     },
-    dateText: {
+    loadingContainer: {
+        padding: 40,
+        alignItems: 'center',
+    },
+    errorContainer: {
+        padding: 20,
+        alignItems: 'center',
+    },
+    errorText: {
+        color: '#ff6b6b',
+        fontSize: 14,
+        textAlign: 'center',
+    },
+    emptyText: {
+        color: '#999',
+        fontSize: 14,
+        textAlign: 'center',
+        padding: 20,
+    },
+    selectedInfo: {
         fontSize: 14,
         color: '#999',
         marginBottom: 16,
+    },
+    movieCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#111',
+        padding: 16,
+        borderRadius: 12,
+        marginBottom: 12,
+        borderWidth: 2,
+        borderColor: '#222',
+    },
+    movieCardSelected: {
+        borderColor: '#E50914',
+        backgroundColor: '#1a0a0f',
+    },
+    movieInfo: {
+        flex: 1,
+    },
+    movieTitle: {
+        fontSize: 16,
+        fontWeight: '600',
+        color: '#fff',
+        marginBottom: 4,
+    },
+    movieMeta: {
+        fontSize: 13,
+        color: '#999',
+        marginBottom: 4,
+    },
+    movieRating: {
+        fontSize: 13,
+        color: '#FFD700',
     },
     cinemaCard: {
         flexDirection: 'row',
@@ -664,10 +956,10 @@ const styles = StyleSheet.create({
         fontSize: 14,
         fontWeight: '600',
     },
-    selectedCinema: {
-        fontSize: 14,
+    expandIcon: {
+        fontSize: 16,
         color: '#999',
-        marginBottom: 16,
+        marginLeft: 12,
     },
     showtimeGrid: {
         flexDirection: 'row',
@@ -759,8 +1051,8 @@ const styles = StyleSheet.create({
         backgroundColor: '#222',
     },
     seatVIP: {
-        backgroundColor: '#4a3c00',
-        borderColor: '#FFD700',
+        backgroundColor: '#ccb429ff',
+        borderColor: '#ccb429ff',
     },
     seatSelected: {
         backgroundColor: '#E50914',
@@ -801,7 +1093,7 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#999',
     },
-    selectedInfo: {
+    selectedSeatInfo: {
         backgroundColor: '#111',
         padding: 16,
         borderRadius: 12,
@@ -812,7 +1104,7 @@ const styles = StyleSheet.create({
         color: '#999',
         marginBottom: 4,
     },
-    selectedSeats: {
+    selectedSeatsText: {
         fontSize: 15,
         color: '#fff',
         fontWeight: '600',
@@ -978,5 +1270,23 @@ const styles = StyleSheet.create({
     },
     bottomSpacing: {
         height: 40,
+    },
+    cinemaGroup: {
+        marginBottom: 24,
+        backgroundColor: '#111',
+        borderRadius: 12,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: '#222',
+    },
+    cinemaHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingBottom: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#222',
+    },
+    cinemaHeaderInfo: {
+        flex: 1,
     },
 });

@@ -414,7 +414,7 @@ export default function MoviesScreen() {
                                         {movie.status === 'NOW_SHOWING' ? (
                                             <TouchableOpacity
                                                 style={styles.bookButton}
-                                                onPress={() => router.push('/booking')}
+                                                onPress={() => router.push(`/booking?movieId=${movie.id}`)}
                                             >
                                                 <Text style={styles.bookButtonText}>Đặt vé</Text>
                                             </TouchableOpacity>
@@ -541,10 +541,11 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         flexWrap: 'wrap',
         justifyContent: 'space-between',
+        paddingHorizontal: 4,
     },
     movieCard: {
         width: '48%',
-        marginBottom: 16,
+        marginBottom: 20,
     },
     movieGridContent: {
         padding: 16,
@@ -552,7 +553,7 @@ const styles = StyleSheet.create({
     },
     moviePoster: {
         width: '100%',
-        height: 240,
+        height: 260,
         borderRadius: 12,
         backgroundColor: '#222',
     },
@@ -592,7 +593,7 @@ const styles = StyleSheet.create({
     },
     movieInfo: {
         marginTop: 8,
-        minHeight: 110,
+        minHeight: 140,
     },
     movieTitle: {
         color: '#fff',
@@ -600,23 +601,27 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         marginBottom: 6,
         lineHeight: 18,
-        height: 46,
+        height: 36,
     },
     movieMeta: {
         color: '#999',
         fontSize: 11,
-        marginBottom: 4,
+        marginBottom: 3,
     },
     bookButton: {
         backgroundColor: '#E50914',
-        paddingVertical: 8,
+        paddingVertical: 10,
         borderRadius: 8,
         alignItems: 'center',
-        marginTop: 8,
+        marginTop: 'auto',
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
     },
     bookButtonText: {
         color: '#fff',
-        fontSize: 12,
+        fontSize: 10,
         fontWeight: 'bold',
     },
     releaseInfo: {
