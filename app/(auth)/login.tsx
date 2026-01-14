@@ -56,7 +56,6 @@ export default function LoginScreen() {
         password: password,
       });
 
-      console.log('Login response status:', response.status);
       console.log('Full response data:', JSON.stringify(response.data, null, 2));
 
       // Kiểm tra response structure

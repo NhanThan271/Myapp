@@ -198,7 +198,7 @@ export default function HomeScreen() {
             />
             <View style={styles.bannerOverlay}>
               <ThemedText style={styles.bannerTitle}>Khuyến mãi đặc biệt</ThemedText>
-              <ThemedText style={styles.bannerSubtitle}>Giảm 50% vé xem phim</ThemedText>
+              <ThemedText style={styles.bannerSubtitle}>Giảm 20% vé xem phim</ThemedText>
             </View>
           </View>
         ))}
@@ -384,11 +384,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   bannerContainer: {
-    marginTop: 20,
+    marginTop: -46,
+    marginHorizontal: 10,
   },
   bannerCard: {
     width: width - 40,
-    height: 180,
+    height: 240,
     marginHorizontal: 20,
     borderRadius: 16,
     overflow: 'hidden',
