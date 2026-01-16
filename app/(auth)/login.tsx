@@ -14,7 +14,7 @@ import {
   View
 } from 'react-native';
 
-const API_URL = 'https://ltud.up.railway.app/api/auth';
+const API_URL = 'https://backend-ltud2.onrender.com/api/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -33,7 +33,6 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    // Validation
     if (!username || !password) {
       showToast('Vui lòng nhập đầy đủ thông tin!', 'error');
       return;
@@ -50,7 +49,6 @@ export default function LoginScreen() {
       console.log('Sending login request to:', `${API_URL}/login`);
       console.log('Request data:', { username: username.trim() });
 
-      // Gọi API đăng nhập
       const response = await axios.post(`${API_URL}/login`, {
         username: username.trim(),
         password: password,
@@ -58,39 +56,28 @@ export default function LoginScreen() {
 
       console.log('Full response data:', JSON.stringify(response.data, null, 2));
 
-      // Kiểm tra response structure
-      if (!response.data) {
-        throw new Error('Response data is empty');
-      }
-
-      // Lưu token và thông tin user
-      const { token, id, username: userName, email, roles } = response.data;
-
-      // Debug: Check nếu thiếu field nào
-      console.log('Token:', token ? 'Present' : 'MISSING');
-      console.log('ID:', id);
-      console.log('Username:', userName);
-      console.log('Email:', email);
-      console.log('Roles:', roles);
-
-      if (!token) {
+      if (!response.data || !response.data.token) {
         throw new Error('Token not found in response');
       }
 
+      const { token, id, username: userName, email, roles } = response.data;
+
+      // ✅ Decode token để debug
+      const decoded = parseJwt(token);
+      console.log('🔓 Decoded token:', JSON.stringify(decoded, null, 2));
+
+      // ✅ Lưu thông tin vào AsyncStorage
       await AsyncStorage.setItem('authToken', token);
-      await AsyncStorage.setItem('userId', id.toString());
+      await AsyncStorage.setItem('userId', id.toString()); // ✅ Dùng 'id' từ response
       await AsyncStorage.setItem('username', userName);
       await AsyncStorage.setItem('email', email || '');
       await AsyncStorage.setItem('roles', JSON.stringify(roles));
 
-      console.log('Data saved to AsyncStorage');
+      console.log('✅ Data saved to AsyncStorage');
 
       showToast('Đăng nhập thành công!', 'success');
-
-      // Cập nhật auth context
       login();
 
-      // Chuyển về home sau 1 giây
       setTimeout(() => {
         router.replace('/(tabs)');
       }, 1000);
@@ -99,25 +86,37 @@ export default function LoginScreen() {
       console.error('Login error:', error);
 
       if (error.response) {
-        // Server trả về lỗi
         console.error('Response status:', error.response.status);
         console.error('Response data:', JSON.stringify(error.response.data, null, 2));
-        console.error('Response headers:', JSON.stringify(error.response.headers, null, 2));
-
         const errorMessage = error.response.data?.message || 'Đăng nhập thất bại!';
         showToast(errorMessage, 'error');
       } else if (error.request) {
-        // Không nhận được response
         console.error('Request error - No response received');
-        console.error('Request:', error.request);
         showToast('Không thể kết nối đến server!', 'error');
       } else {
-        // Lỗi khác
         console.error('Error message:', error.message);
         showToast(error.message || 'Đã xảy ra lỗi không xác định!', 'error');
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ Helper function parse JWT
+  const parseJwt = (token: string) => {
+    try {
+      const base64Url = token.split('.')[1];
+      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = decodeURIComponent(
+        atob(base64)
+          .split('')
+          .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+          .join('')
+      );
+      return JSON.parse(jsonPayload);
+    } catch (error) {
+      console.error('Error parsing JWT:', error);
+      return null;
     }
   };
 

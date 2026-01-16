@@ -1,11 +1,21 @@
 import { Toast } from '@/components/Toast';
+import axios from 'axios';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {
+    ActivityIndicator,
+    Image,
+    KeyboardAvoidingView,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
+} from 'react-native';
 
-// Dữ liệu mẫu
-const VALID_EMAIL = 'user@gmail.com';
-const VALID_OTP = '123456';
+const API_URL = 'https://backend-ltud2.onrender.com/api/auth/password';
 
 type Step = 'email' | 'otp' | 'newPassword';
 
@@ -18,13 +28,19 @@ export default function ForgotPasswordScreen() {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-    const [toast, setToast] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
+    const [loading, setLoading] = useState(false);
+    const [toast, setToast] = useState({
+        visible: false,
+        message: '',
+        type: 'error' as 'error' | 'success' | 'info'
+    });
 
     const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
         setToast({ visible: true, message, type });
     };
 
-    const handleSendOTP = () => {
+    // ✅ Gửi OTP qua API
+    const handleSendOTP = async () => {
         if (!email) {
             showToast('Vui lòng nhập email!', 'error');
             return;
@@ -35,17 +51,40 @@ export default function ForgotPasswordScreen() {
             return;
         }
 
-        if (email !== VALID_EMAIL) {
-            showToast('Email không tồn tại trong hệ thống!', 'error');
-            return;
-        }
+        setLoading(true);
 
-        showToast('Mã OTP đã được gửi đến email của bạn!', 'success');
-        setTimeout(() => {
-            setStep('otp');
-        }, 1500);
+        try {
+            console.log('📧 Sending OTP to:', email);
+
+            const response = await axios.post(`${API_URL}/forgot`, {
+                email: email.trim()
+            });
+
+            console.log('✅ OTP sent:', response.data);
+
+            showToast('Mã OTP đã được gửi đến email của bạn!', 'success');
+
+            setTimeout(() => {
+                setStep('otp');
+            }, 1500);
+
+        } catch (error: any) {
+            console.error('❌ Error sending OTP:', error);
+
+            if (error.response) {
+                const errorMessage = error.response.data?.message || 'Email không tồn tại trong hệ thống!';
+                showToast(errorMessage, 'error');
+            } else if (error.request) {
+                showToast('Không thể kết nối đến server!', 'error');
+            } else {
+                showToast('Đã xảy ra lỗi không xác định!', 'error');
+            }
+        } finally {
+            setLoading(false);
+        }
     };
 
+    // ✅ Xác thực OTP và chuyển sang bước đặt mật khẩu
     const handleVerifyOTP = () => {
         if (!otp) {
             showToast('Vui lòng nhập mã OTP!', 'error');
@@ -57,15 +96,12 @@ export default function ForgotPasswordScreen() {
             return;
         }
 
-        if (otp !== VALID_OTP) {
-            showToast('Mã OTP không chính xác!', 'error');
-            return;
-        }
-
-        showToast('Xác thực thành công!', 'success');
+        // Chuyển sang bước đặt mật khẩu mới
+        // Backend sẽ verify OTP khi reset password
+        showToast('Mã OTP hợp lệ!', 'success');
         setTimeout(() => {
             setStep('newPassword');
-        }, 1500);
+        }, 1000);
     };
 
     const getPasswordStrength = () => {
@@ -89,7 +125,8 @@ export default function ForgotPasswordScreen() {
         return { label: 'Yếu', color: '#dc2626' };
     };
 
-    const handleResetPassword = () => {
+    // ✅ Reset mật khẩu qua API
+    const handleResetPassword = async () => {
         if (!newPassword || !confirmPassword) {
             showToast('Vui lòng nhập đầy đủ thông tin!', 'error');
             return;
@@ -105,10 +142,69 @@ export default function ForgotPasswordScreen() {
             return;
         }
 
-        showToast('Đặt lại mật khẩu thành công!', 'success');
-        setTimeout(() => {
-            router.push('/(auth)/login');
-        }, 1500);
+        setLoading(true);
+
+        try {
+            console.log('🔐 Resetting password with OTP:', otp);
+
+            const response = await axios.post(`${API_URL}/reset`, {
+                otp: otp,
+                newPassword: newPassword
+            });
+
+            console.log('✅ Password reset successful:', response.data);
+
+            showToast('Đặt lại mật khẩu thành công!', 'success');
+
+            setTimeout(() => {
+                router.replace('/(auth)/login');
+            }, 1500);
+
+        } catch (error: any) {
+            console.error('❌ Error resetting password:', error);
+
+            if (error.response) {
+                const errorMessage = error.response.data?.message || 'Không thể đặt lại mật khẩu!';
+
+                if (errorMessage.includes('OTP')) {
+                    showToast('Mã OTP không đúng hoặc đã hết hạn!', 'error');
+                } else {
+                    showToast(errorMessage, 'error');
+                }
+            } else if (error.request) {
+                showToast('Không thể kết nối đến server!', 'error');
+            } else {
+                showToast('Đã xảy ra lỗi không xác định!', 'error');
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // ✅ Gửi lại OTP
+    const handleResendOTP = async () => {
+        if (!email) {
+            showToast('Email không hợp lệ!', 'error');
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            console.log('🔄 Resending OTP to:', email);
+
+            await axios.post(`${API_URL}/forgot`, {
+                email: email.trim()
+            });
+
+            showToast('Mã OTP mới đã được gửi!', 'success');
+
+        } catch (error: any) {
+            console.error('❌ Error resending OTP:', error);
+            showToast('Không thể gửi lại OTP. Vui lòng thử lại!', 'error');
+        } finally {
+            setLoading(false);
+        }
     };
 
     const strength = getPasswordStrength();
@@ -179,9 +275,6 @@ export default function ForgotPasswordScreen() {
                         {/* Bước 1: Nhập Email */}
                         {step === 'email' && (
                             <>
-                                <View style={styles.infoBox}>
-                                    <Text style={styles.infoText}>Email mẫu: user@gmail.com</Text>
-                                </View>
                                 <Text style={styles.label}>Email</Text>
                                 <TextInput
                                     style={styles.input}
@@ -191,9 +284,18 @@ export default function ForgotPasswordScreen() {
                                     onChangeText={setEmail}
                                     keyboardType="email-address"
                                     autoCapitalize="none"
+                                    editable={!loading}
                                 />
-                                <TouchableOpacity style={styles.primaryButton} onPress={handleSendOTP}>
-                                    <Text style={styles.primaryButtonText}>Gửi mã OTP</Text>
+                                <TouchableOpacity
+                                    style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                                    onPress={handleSendOTP}
+                                    disabled={loading}
+                                >
+                                    {loading ? (
+                                        <ActivityIndicator color="#fff" />
+                                    ) : (
+                                        <Text style={styles.primaryButtonText}>Gửi mã OTP</Text>
+                                    )}
                                 </TouchableOpacity>
                             </>
                         )}
@@ -201,9 +303,6 @@ export default function ForgotPasswordScreen() {
                         {/* Bước 2: Nhập OTP */}
                         {step === 'otp' && (
                             <>
-                                <View style={styles.infoBox}>
-                                    <Text style={styles.infoText}>Mã OTP mẫu: 123456</Text>
-                                </View>
                                 <Text style={styles.label}>Mã OTP</Text>
                                 <TextInput
                                     style={styles.input}
@@ -213,11 +312,22 @@ export default function ForgotPasswordScreen() {
                                     onChangeText={setOtp}
                                     keyboardType="number-pad"
                                     maxLength={6}
+                                    editable={!loading}
                                 />
-                                <TouchableOpacity style={styles.resendButton}>
-                                    <Text style={styles.resendText}>Gửi lại mã OTP</Text>
+                                <TouchableOpacity
+                                    style={styles.resendButton}
+                                    onPress={handleResendOTP}
+                                    disabled={loading}
+                                >
+                                    <Text style={styles.resendText}>
+                                        {loading ? 'Đang gửi...' : 'Gửi lại mã OTP'}
+                                    </Text>
                                 </TouchableOpacity>
-                                <TouchableOpacity style={styles.primaryButton} onPress={handleVerifyOTP}>
+                                <TouchableOpacity
+                                    style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                                    onPress={handleVerifyOTP}
+                                    disabled={loading}
+                                >
                                     <Text style={styles.primaryButtonText}>Xác thực</Text>
                                 </TouchableOpacity>
                             </>
@@ -236,6 +346,7 @@ export default function ForgotPasswordScreen() {
                                             value={newPassword}
                                             onChangeText={setNewPassword}
                                             secureTextEntry={!showPassword}
+                                            editable={!loading}
                                         />
                                         <TouchableOpacity
                                             onPress={() => setShowPassword(!showPassword)}
@@ -245,7 +356,6 @@ export default function ForgotPasswordScreen() {
                                         </TouchableOpacity>
                                     </View>
 
-                                    {/* Password Strength */}
                                     {strength && (
                                         <View style={styles.strengthContainer}>
                                             <View style={styles.strengthBar}>
@@ -276,6 +386,7 @@ export default function ForgotPasswordScreen() {
                                             value={confirmPassword}
                                             onChangeText={setConfirmPassword}
                                             secureTextEntry={!showConfirmPassword}
+                                            editable={!loading}
                                         />
                                         <TouchableOpacity
                                             onPress={() => setShowConfirmPassword(!showConfirmPassword)}
@@ -285,7 +396,6 @@ export default function ForgotPasswordScreen() {
                                         </TouchableOpacity>
                                     </View>
 
-                                    {/* Password Match Indicator */}
                                     {confirmPassword.length > 0 && (
                                         <Text style={[
                                             styles.matchText,
@@ -296,8 +406,16 @@ export default function ForgotPasswordScreen() {
                                     )}
                                 </View>
 
-                                <TouchableOpacity style={styles.primaryButton} onPress={handleResetPassword}>
-                                    <Text style={styles.primaryButtonText}>Đặt lại mật khẩu</Text>
+                                <TouchableOpacity
+                                    style={[styles.primaryButton, loading && styles.buttonDisabled]}
+                                    onPress={handleResetPassword}
+                                    disabled={loading}
+                                >
+                                    {loading ? (
+                                        <ActivityIndicator color="#fff" />
+                                    ) : (
+                                        <Text style={styles.primaryButtonText}>Đặt lại mật khẩu</Text>
+                                    )}
                                 </TouchableOpacity>
                             </>
                         )}
@@ -408,19 +526,6 @@ const styles = StyleSheet.create({
     stepLineActive: {
         backgroundColor: '#e50914',
     },
-    infoBox: {
-        backgroundColor: '#1e1e28',
-        borderRadius: 8,
-        padding: 12,
-        marginBottom: 20,
-        borderLeftWidth: 3,
-        borderLeftColor: '#ffd700',
-    },
-    infoText: {
-        color: '#ffd700',
-        fontSize: 14,
-        fontWeight: '500',
-    },
     inputContainer: {
         marginBottom: 20,
     },
@@ -471,6 +576,9 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 4,
+    },
+    buttonDisabled: {
+        opacity: 0.6,
     },
     primaryButtonText: {
         color: '#ffffff',

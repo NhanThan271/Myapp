@@ -1,242 +1,474 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import { Image } from 'expo-image';
-import { router } from 'expo-router';
-import React, { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 // Types
-interface Ticket {
-    id: string;
-    movieTitle: string;
-    poster: string;
-    cinema: string;
-    date: string;
-    time: string;
-    seats: string[];
-    screen: string;
-    bookingCode: string;
-    status: 'upcoming' | 'past' | 'cancelled';
-    totalPrice: number;
-    type: '2D' | '3D';
+interface Cinema {
+    id: number;
+    name: string;
+    address: string;
 }
 
-// Mock data
-const mockTickets: Ticket[] = [
-    {
-        id: '1',
-        movieTitle: 'Avatar: The Way of Water',
-        poster: 'https://image.tmdb.org/t/p/w500/t6HIqrRAclMCA60NsSmeqe9RmNV.jpg',
-        cinema: 'CGV Vincom Center',
-        date: '20/12/2024',
-        time: '19:00',
-        seats: ['G7', 'G8'],
-        screen: 'Rạp 3',
-        bookingCode: 'CGV123456',
-        status: 'upcoming',
-        totalPrice: 240000,
-        type: '3D',
-    },
-    {
-        id: '2',
-        movieTitle: 'Spider-Man: No Way Home',
-        poster: 'https://image.tmdb.org/t/p/w500/1g0dhYtq4irTY1GPXvft6k4YLjm.jpg',
-        cinema: 'Lotte Cinema Q7',
-        date: '15/12/2024',
-        time: '21:30',
-        seats: ['F5', 'F6', 'F7'],
-        screen: 'Rạp 2',
-        bookingCode: 'LTE789012',
-        status: 'upcoming',
-        totalPrice: 255000,
-        type: '2D',
-    },
-    {
-        id: '3',
-        movieTitle: 'The Batman',
-        poster: 'https://image.tmdb.org/t/p/w500/74xTEgt7R36Fpooo50r9T25onhq.jpg',
-        cinema: 'CGV Aeon Mall',
-        date: '10/12/2024',
-        time: '14:00',
-        seats: ['H8', 'H9'],
-        screen: 'Rạp 1',
-        bookingCode: 'CGV345678',
-        status: 'past',
-        totalPrice: 170000,
-        type: '2D',
-    },
-    {
-        id: '4',
-        movieTitle: 'Top Gun: Maverick',
-        poster: 'https://image.tmdb.org/t/p/w500/62HCnUTziyWcpDaBO2i1DX17ljH.jpg',
-        cinema: 'CGV Vincom Center',
-        date: '05/12/2024',
-        time: '16:30',
-        seats: ['E5'],
-        screen: 'Rạp 4',
-        bookingCode: 'CGV901234',
-        status: 'past',
-        totalPrice: 85000,
-        type: '2D',
-    },
-    {
-        id: '5',
-        movieTitle: 'Doctor Strange 2',
-        poster: 'https://image.tmdb.org/t/p/w500/9Gtg2DzBhmYamXBS1hKAhiwbBKS.jpg',
-        cinema: 'Lotte Cinema Q1',
-        date: '28/11/2024',
-        time: '19:00',
-        seats: ['G10', 'G11'],
-        screen: 'Rạp 5',
-        bookingCode: 'LTE567890',
-        status: 'cancelled',
-        totalPrice: 240000,
-        type: '3D',
-    },
-];
+interface Room {
+    id: number;
+    name: string;
+    cinema: Cinema;
+}
+
+interface Movie {
+    id: number;
+    title: string;
+    posterUrl: string;
+    duration: number;
+    rating: number;
+}
+
+interface Showtime {
+    id: number;
+    startTime: string;
+    format: string;
+    price: number;
+    movie: Movie;
+    room: Room;
+}
+
+interface Seat {
+    id: number;
+    rowSeat: string;
+    number: number;
+    type: 'NORMAL' | 'VIP';
+}
+
+interface Ticket {
+    id: number;
+    showtime: Showtime;
+    seat: Seat;
+    price: number;
+    bookedAt: string;
+    status: 'PENDING' | 'BOOKED' | 'CANCELLED' | 'USED';
+    ticketCode?: string;
+}
+
+interface User {
+    id: number;
+    username: string;
+    email: string;
+    role: string;
+}
+
+const API_URL = 'https://backend-ltud2.onrender.com/api';
+const TICKETS_STORAGE_KEY = 'user_tickets';
 
 export default function MyTicketsScreen() {
     const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'cancelled'>('upcoming');
+    const [tickets, setTickets] = useState<Ticket[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [authToken, setAuthToken] = useState<string | null>(null);
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-    const filteredTickets = mockTickets.filter(ticket => ticket.status === activeTab);
+    useEffect(() => {
+        loadAuthToken();
+    }, []);
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'upcoming':
-                return '#10b981';
-            case 'past':
-                return '#6b7280';
-            case 'cancelled':
-                return '#ef4444';
-            default:
-                return '#6b7280';
+    useEffect(() => {
+        if (authToken) {
+            fetchUserInfo();
+        }
+    }, [authToken]);
+
+    // Load tickets when screen is focused
+    useFocusEffect(
+        useCallback(() => {
+            if (authToken && currentUser) {
+                console.log('🔄 Screen focused - reloading tickets');
+                fetchTickets();
+            }
+        }, [authToken, currentUser])
+    );
+
+    const loadAuthToken = async () => {
+        try {
+            const token = await AsyncStorage.getItem('authToken');
+            console.log(' Token loaded');
+
+            if (!token) {
+                Alert.alert('Lỗi', 'Vui lòng đăng nhập để xem vé', [
+                    { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') }
+                ]);
+                return;
+            }
+            setAuthToken(token);
+        } catch (error) {
+            console.error('❌ Error loading token:', error);
         }
     };
 
-    const getStatusText = (status: string) => {
-        switch (status) {
-            case 'upcoming':
-                return 'Sắp chiếu';
-            case 'past':
-                return 'Đã xem';
-            case 'cancelled':
-                return 'Đã hủy';
-            default:
-                return '';
+    const fetchUserInfo = async () => {
+        try {
+            console.log('🔍 Loading user info...');
+
+            if (!authToken) {
+                throw new Error('No auth token');
+            }
+
+            const storedUserId = await AsyncStorage.getItem('userId');
+            const storedUsername = await AsyncStorage.getItem('username');
+            const storedEmail = await AsyncStorage.getItem('email');
+            const storedRoles = await AsyncStorage.getItem('roles');
+
+            if (!storedUserId) {
+                throw new Error('No userId in storage');
+            }
+
+            const parsedUserId = parseInt(storedUserId, 10);
+
+            if (isNaN(parsedUserId)) {
+                throw new Error('Invalid userId format');
+            }
+
+            setCurrentUser({
+                id: parsedUserId,
+                username: storedUsername || '',
+                email: storedEmail || '',
+                role: storedRoles ? JSON.parse(storedRoles)[0] : 'CUSTOMER'
+            });
+
+            console.log(' User info loaded:', parsedUserId);
+
+        } catch (error: any) {
+            console.error('❌ Error loading user info:', error.message);
+            Alert.alert('Lỗi', 'Không thể lấy thông tin người dùng. Vui lòng đăng nhập lại.', [
+                { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') }
+            ]);
+            setIsLoading(false);
         }
     };
 
-    const renderTicketCard = (ticket: Ticket) => (
-        <TouchableOpacity key={ticket.id} style={styles.ticketCard} activeOpacity={0.7}>
-            <View style={styles.ticketContent}>
-                {/* Left side - Movie poster */}
-                <Image
-                    source={{ uri: ticket.poster }}
-                    style={styles.poster}
-                    contentFit="cover"
-                />
+    const fetchTickets = async () => {
+        try {
+            setIsLoading(true);
+            console.log('🎫 Fetching tickets for user:', currentUser?.id);
 
-                {/* Right side - Ticket details */}
-                <View style={styles.ticketDetails}>
-                    <View style={styles.ticketHeader}>
-                        <Text style={styles.movieTitle} numberOfLines={2}>
-                            {ticket.movieTitle}
-                        </Text>
-                        <View
-                            style={[
-                                styles.statusBadge,
-                                { backgroundColor: getStatusColor(ticket.status) + '20' },
-                            ]}
-                        >
-                            <Text
+            if (!currentUser?.id) {
+                throw new Error('User ID not found');
+            }
+
+            // Thử lấy từ API trước
+            try {
+                const response = await axios.get(
+                    `${API_URL}/customer/tickets/user/${currentUser.id}`,
+                    {
+                        headers: { 'Authorization': `Bearer ${authToken}` },
+                        timeout: 10000
+                    }
+                );
+                console.log('📊 Raw API Response:', JSON.stringify(response.data, null, 2));
+                if (response.data && Array.isArray(response.data)) {
+                    console.log(' Tickets loaded from API:', response.data.length);
+
+                    response.data.forEach((ticket, index) => {
+                        console.log(`Ticket ${index}:`, {
+                            id: ticket.id,
+                            status: ticket.status,
+                            bookedAt: ticket.bookedAt,
+                            showtimeStartTime: ticket.showtime?.startTime,
+                            movieTitle: ticket.showtime?.movie?.title
+                        });
+                    });
+
+                    setTickets(response.data);
+
+                    // Lưu vào AsyncStorage để backup
+                    await AsyncStorage.setItem(
+                        `${TICKETS_STORAGE_KEY}_${currentUser.id}`,
+                        JSON.stringify(response.data)
+                    );
+                    return;
+                }
+            } catch (apiError: any) {
+                console.error('⚠️ API Error:', {
+                    status: apiError.response?.status,
+                    message: apiError.response?.data?.message || apiError.message,
+                    data: apiError.response?.data
+                });
+
+                // Nếu API fail, lấy từ AsyncStorage
+                const storedTickets = await AsyncStorage.getItem(
+                    `${TICKETS_STORAGE_KEY}_${currentUser.id}`
+                );
+
+                if (storedTickets) {
+                    const parsedTickets = JSON.parse(storedTickets);
+                    console.log(' Tickets loaded from storage:', parsedTickets.length);
+                    setTickets(parsedTickets);
+                } else {
+                    console.log('ℹ️ No tickets found');
+                    setTickets([]);
+                }
+            }
+
+        } catch (error: any) {
+            console.error('❌ Error fetching tickets:', error.message);
+            setTickets([]);
+        } finally {
+            setIsLoading(false);
+            setIsRefreshing(false);
+        }
+    };
+
+    const onRefresh = async () => {
+        setIsRefreshing(true);
+        await fetchTickets();
+    };
+
+    // Group tickets by showtime
+    const groupTicketsByShowtime = (tickets: Ticket[]) => {
+        const grouped = new Map<number, Ticket[]>();
+
+        tickets.forEach(ticket => {
+            const showtimeId = ticket.showtime.id;
+            if (!grouped.has(showtimeId)) {
+                grouped.set(showtimeId, []);
+            }
+            grouped.get(showtimeId)!.push(ticket);
+        });
+
+        return Array.from(grouped.values());
+    };
+
+    // Filter tickets based on active tab and showtime date
+    const getFilteredTickets = () => {
+        const now = new Date();
+
+        return tickets.filter(ticket => {
+            const showtimeDate = new Date(ticket.showtime.startTime);
+
+            if (activeTab === 'upcoming') {
+                return (ticket.status === 'BOOKED' || ticket.status === 'PENDING') && showtimeDate > now;
+            } else if (activeTab === 'past') {
+                return (ticket.status === 'USED' ||
+                    ((ticket.status === 'BOOKED' || ticket.status === 'PENDING') && showtimeDate <= now));
+            } else {
+                return ticket.status === 'CANCELLED';
+            }
+        });
+    };
+
+    const filteredTickets = groupTicketsByShowtime(getFilteredTickets());
+
+    const formatDateTime = (dateTimeString: string) => {
+        const date = new Date(dateTimeString);
+        const dateStr = date.toLocaleDateString('vi-VN');
+        const timeStr = date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        return { date: dateStr, time: timeStr };
+    };
+
+    const getStatusColor = (status: string, showtimeDate: Date) => {
+        const now = new Date();
+
+        if (status === 'CANCELLED') {
+            return '#ef4444';
+        } else if (status === 'USED' || showtimeDate <= now) {
+            return '#6b7280';
+        } else if (status === 'PENDING' || status === 'BOOKED') {
+            return '#10b981';
+        }
+        return '#10b981';
+    };
+
+    const getStatusText = (status: string, showtimeDate: Date) => {
+        const now = new Date();
+
+        if (status === 'CANCELLED') {
+            return 'Đã hủy';
+        } else if (status === 'USED' || showtimeDate <= now) {
+            return 'Đã xem';
+        } else if (status === 'PENDING') {
+            return 'Chờ xác nhận';
+        } else {
+            return 'Sắp chiếu';
+        }
+    };
+
+    const handleCancelTicket = async (groupedTickets: Ticket[]) => {
+        Alert.alert(
+            'Xác nhận hủy vé',
+            `Bạn có chắc chắn muốn hủy ${groupedTickets.length} vé này?`,
+            [
+                { text: 'Không', style: 'cancel' },
+                {
+                    text: 'Hủy vé',
+                    style: 'destructive',
+                    onPress: async () => {
+                        try {
+                            // Update status in local storage
+                            const updatedTickets = tickets.map(ticket => {
+                                if (groupedTickets.some(t => t.id === ticket.id)) {
+                                    return { ...ticket, status: 'CANCELLED' as const };
+                                }
+                                return ticket;
+                            });
+
+                            setTickets(updatedTickets);
+
+                            // Save to AsyncStorage
+                            if (currentUser?.id) {
+                                await AsyncStorage.setItem(
+                                    `${TICKETS_STORAGE_KEY}_${currentUser.id}`,
+                                    JSON.stringify(updatedTickets)
+                                );
+                            }
+
+                            Alert.alert('Thành công', 'Đã hủy vé');
+                        } catch (error) {
+                            Alert.alert('Lỗi', 'Không thể hủy vé');
+                        }
+                    }
+                }
+            ]
+        );
+    };
+
+    const renderTicketCard = (groupedTickets: Ticket[]) => {
+        const firstTicket = groupedTickets[0];
+        const { showtime, seat } = firstTicket;
+        const { movie, room } = showtime;
+        const { date, time } = formatDateTime(showtime.startTime);
+
+        const totalPrice = groupedTickets.reduce((sum, t) => sum + t.price, 0);
+        const seats = groupedTickets.map(t => `${t.seat.rowSeat}${t.seat.number}`);
+        const showtimeDate = new Date(showtime.startTime);
+        const status = firstTicket.status;
+        const statusColor = getStatusColor(status, showtimeDate);
+        const statusText = getStatusText(status, showtimeDate);
+
+        // Generate booking code from first ticket ID
+        const bookingCode = `TKT${firstTicket.id.toString().padStart(6, '0')}`;
+
+        return (
+            <TouchableOpacity
+                key={`${firstTicket.showtime.id}-${firstTicket.id}`}
+                style={styles.ticketCard}
+                activeOpacity={0.7}
+            >
+                <View style={styles.ticketContent}>
+                    <Image
+                        source={{ uri: movie.posterUrl }}
+                        style={styles.poster}
+                        contentFit="cover"
+                    />
+
+                    <View style={styles.ticketDetails}>
+                        <View style={styles.ticketHeader}>
+                            <Text style={styles.movieTitle} numberOfLines={2}>
+                                {movie.title}
+                            </Text>
+                            <View
                                 style={[
-                                    styles.statusText,
-                                    { color: getStatusColor(ticket.status) },
+                                    styles.statusBadge,
+                                    { backgroundColor: statusColor + '20' },
                                 ]}
                             >
-                                {getStatusText(ticket.status)}
+                                <Text
+                                    style={[
+                                        styles.statusText,
+                                        { color: statusColor },
+                                    ]}
+                                >
+                                    {statusText}
+                                </Text>
+                            </View>
+                        </View>
+
+                        <View style={styles.infoRow}>
+                            <Text style={styles.infoIcon}>🎬</Text>
+                            <Text style={styles.infoText}>{room.cinema.name}</Text>
+                        </View>
+
+                        <View style={styles.infoRow}>
+                            <Text style={styles.infoIcon}>📅</Text>
+                            <Text style={styles.infoText}>
+                                {date} • {time}
                             </Text>
                         </View>
-                    </View>
 
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoIcon}>🎬</Text>
-                        <Text style={styles.infoText}>{ticket.cinema}</Text>
-                    </View>
-
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoIcon}>📅</Text>
-                        <Text style={styles.infoText}>
-                            {ticket.date} • {ticket.time}
-                        </Text>
-                    </View>
-
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoIcon}>🎭</Text>
-                        <Text style={styles.infoText}>
-                            {ticket.screen} • {ticket.type}
-                        </Text>
-                    </View>
-
-                    <View style={styles.infoRow}>
-                        <Text style={styles.infoIcon}>💺</Text>
-                        <Text style={styles.infoText}>
-                            Ghế: {ticket.seats.join(', ')}
-                        </Text>
-                    </View>
-
-                    <View style={styles.ticketFooter}>
-                        <View>
-                            <Text style={styles.priceLabel}>Tổng tiền</Text>
-                            <Text style={styles.priceValue}>
-                                {ticket.totalPrice.toLocaleString('vi-VN')}đ
+                        <View style={styles.infoRow}>
+                            <Text style={styles.infoIcon}>🎭</Text>
+                            <Text style={styles.infoText}>
+                                {room.name} • {showtime.format}
                             </Text>
                         </View>
-                        <View style={styles.bookingCodeContainer}>
-                            <Text style={styles.bookingCodeLabel}>Mã đặt vé</Text>
-                            <Text style={styles.bookingCode}>{ticket.bookingCode}</Text>
+
+                        <View style={styles.infoRow}>
+                            <Text style={styles.infoIcon}>💺</Text>
+                            <Text style={styles.infoText}>
+                                Ghế: {seats.join(', ')}
+                            </Text>
+                        </View>
+
+                        <View style={styles.ticketFooter}>
+                            <View>
+                                <Text style={styles.priceLabel}>Tổng tiền</Text>
+                                <Text style={styles.priceValue}>
+                                    {totalPrice.toLocaleString('vi-VN')}đ
+                                </Text>
+                            </View>
+                            <View style={styles.bookingCodeContainer}>
+                                <Text style={styles.bookingCodeLabel}>Mã đặt vé</Text>
+                                <Text style={styles.bookingCode}>{bookingCode}</Text>
+                            </View>
                         </View>
                     </View>
                 </View>
-            </View>
 
-            {/* Dotted line separator */}
-            <View style={styles.separator}>
-                <View style={styles.circleLeft} />
-                <View style={styles.dottedLine} />
-                <View style={styles.circleRight} />
-            </View>
+                <View style={styles.separator}>
+                    <View style={styles.circleLeft} />
+                    <View style={styles.dottedLine} />
+                    <View style={styles.circleRight} />
+                </View>
 
-            {/* Action buttons */}
-            <View style={styles.actionButtons}>
-                {ticket.status === 'upcoming' ? (
-                    <>
-                        <TouchableOpacity style={styles.actionButton}>
-                            <Text style={styles.actionButtonText}>Chi tiết vé</Text>
+                <View style={styles.actionButtons}>
+                    {(status === 'BOOKED' || status === 'PENDING') && showtimeDate > new Date() ? (
+                        <>
+                            <TouchableOpacity style={styles.actionButton}>
+                                <Text style={styles.actionButtonText}>Chi tiết vé</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.actionButton, styles.cancelButton]}
+                                onPress={() => handleCancelTicket(groupedTickets)}
+                            >
+                                <Text style={[styles.actionButtonText, styles.cancelButtonText]}>
+                                    Hủy vé
+                                </Text>
+                            </TouchableOpacity>
+                        </>
+                    ) : status === 'USED' || ((status === 'BOOKED' || status === 'PENDING') && showtimeDate <= new Date()) ? (
+                        <>
+                            <TouchableOpacity
+                                style={styles.actionButton}
+                                onPress={() => router.push('/(tabs)')}
+                            >
+                                <Text style={styles.actionButtonText}>Đặt lại</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.actionButton, styles.reviewButton]}>
+                                <Text style={[styles.actionButtonText, styles.reviewButtonText]}>
+                                    Đánh giá
+                                </Text>
+                            </TouchableOpacity>
+                        </>
+                    ) : (
+                        <TouchableOpacity style={styles.actionButtonFull}>
+                            <Text style={styles.actionButtonText}>Xem chi tiết</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.actionButton, styles.cancelButton]}>
-                            <Text style={[styles.actionButtonText, styles.cancelButtonText]}>
-                                Hủy vé
-                            </Text>
-                        </TouchableOpacity>
-                    </>
-                ) : ticket.status === 'past' ? (
-                    <>
-                        <TouchableOpacity style={styles.actionButton}>
-                            <Text style={styles.actionButtonText}>Đặt lại</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[styles.actionButton, styles.reviewButton]}>
-                            <Text style={[styles.actionButtonText, styles.reviewButtonText]}>
-                                Đánh giá
-                            </Text>
-                        </TouchableOpacity>
-                    </>
-                ) : (
-                    <TouchableOpacity style={styles.actionButtonFull}>
-                        <Text style={styles.actionButtonText}>Xem chi tiết</Text>
-                    </TouchableOpacity>
-                )}
-            </View>
-        </TouchableOpacity>
-    );
+                    )}
+                </View>
+            </TouchableOpacity>
+        );
+    };
 
     const renderEmptyState = () => (
         <View style={styles.emptyState}>
@@ -249,15 +481,49 @@ export default function MyTicketsScreen() {
                         ? 'Bạn chưa xem phim nào'
                         : 'Bạn chưa có vé nào bị hủy'}
             </Text>
-            <TouchableOpacity style={styles.browseButton}>
+            <TouchableOpacity
+                style={styles.browseButton}
+                onPress={() => router.push('/(tabs)')}
+            >
                 <Text style={styles.browseButtonText}>Khám phá phim</Text>
             </TouchableOpacity>
         </View>
     );
 
+    const renderLoadingState = () => (
+        <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#8b5cf6" />
+            <Text style={styles.loadingText}>Đang tải vé...</Text>
+        </View>
+    );
+
+    // Count tickets by status
+    const upcomingCount = tickets.filter(t => {
+        const showtimeDate = new Date(t.showtime.startTime);
+        return (t.status === 'BOOKED' || t.status === 'PENDING') && showtimeDate > new Date();
+    }).length;
+
+    if (isLoading) {
+        return (
+            <View style={styles.container}>
+                <View style={styles.header}>
+                    <TouchableOpacity
+                        style={styles.backButton}
+                        onPress={() => router.back()}
+                    >
+                        <Text style={styles.backIcon}>←</Text>
+                    </TouchableOpacity>
+                    <View style={styles.headerContent}>
+                        <Text style={styles.headerTitle}>Vé của tôi</Text>
+                    </View>
+                </View>
+                {renderLoadingState()}
+            </View>
+        );
+    }
+
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity
                     style={styles.backButton}
@@ -268,12 +534,11 @@ export default function MyTicketsScreen() {
                 <View style={styles.headerContent}>
                     <Text style={styles.headerTitle}>Vé của tôi</Text>
                     <Text style={styles.headerSubtitle}>
-                        {mockTickets.filter(t => t.status === 'upcoming').length} vé sắp chiếu
+                        {upcomingCount} vé sắp chiếu
                     </Text>
                 </View>
             </View>
 
-            {/* Tabs */}
             <View style={styles.tabs}>
                 <TouchableOpacity
                     style={[styles.tab, activeTab === 'upcoming' && styles.tabActive]}
@@ -282,10 +547,10 @@ export default function MyTicketsScreen() {
                     <Text style={[styles.tabText, activeTab === 'upcoming' && styles.tabTextActive]}>
                         Sắp chiếu
                     </Text>
-                    {mockTickets.filter(t => t.status === 'upcoming').length > 0 && (
+                    {upcomingCount > 0 && (
                         <View style={styles.badge}>
                             <Text style={styles.badgeText}>
-                                {mockTickets.filter(t => t.status === 'upcoming').length}
+                                {upcomingCount}
                             </Text>
                         </View>
                     )}
@@ -310,11 +575,18 @@ export default function MyTicketsScreen() {
                 </TouchableOpacity>
             </View>
 
-            {/* Content */}
             <ScrollView
                 style={styles.content}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={styles.scrollContent}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={isRefreshing}
+                        onRefresh={onRefresh}
+                        tintColor="#8b5cf6"
+                        colors={['#8b5cf6']}
+                    />
+                }
             >
                 {filteredTickets.length > 0
                     ? filteredTickets.map(renderTicketCard)
@@ -327,284 +599,58 @@ export default function MyTicketsScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0f0f23',
-    },
-    header: {
-        paddingTop: 60,
-        paddingHorizontal: 20,
-        paddingBottom: 20,
-        backgroundColor: '#1a1a2e',
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(139, 92, 246, 0.2)',
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    backButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(139, 92, 246, 0.2)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12,
-    },
-    backIcon: {
-        fontSize: 24,
-        color: '#a78bfa',
-        fontWeight: 'bold',
-    },
-    headerContent: {
-        flex: 1,
-    },
-    headerTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#fff',
-        marginBottom: 4,
-    },
-    headerSubtitle: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.6)',
-    },
-    tabs: {
-        flexDirection: 'row',
-        backgroundColor: '#1a1a2e',
-        paddingHorizontal: 20,
-        paddingBottom: 16,
-        gap: 12,
-    },
-    tab: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 10,
-        paddingHorizontal: 16,
-        borderRadius: 8,
-        backgroundColor: '#0f0f23',
-        gap: 8,
-    },
-    tabActive: {
-        backgroundColor: 'rgba(139, 92, 246, 0.2)',
-    },
-    tabText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: 'rgba(255,255,255,0.5)',
-    },
-    tabTextActive: {
-        color: '#a78bfa',
-    },
-    badge: {
-        backgroundColor: '#8b5cf6',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
-        minWidth: 20,
-        alignItems: 'center',
-    },
-    badgeText: {
-        fontSize: 11,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
-    content: {
-        flex: 1,
-    },
-    scrollContent: {
-        padding: 20,
-    },
-    ticketCard: {
-        backgroundColor: '#1a1a2e',
-        borderRadius: 16,
-        marginBottom: 16,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(139, 92, 246, 0.2)',
-    },
-    ticketContent: {
-        flexDirection: 'row',
-        padding: 16,
-    },
-    poster: {
-        width: 100,
-        height: 150,
-        borderRadius: 12,
-        backgroundColor: '#2a2a3e',
-    },
-    ticketDetails: {
-        flex: 1,
-        marginLeft: 16,
-    },
-    ticketHeader: {
-        marginBottom: 12,
-    },
-    movieTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#fff',
-        marginBottom: 8,
-    },
-    statusBadge: {
-        alignSelf: 'flex-start',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 6,
-    },
-    statusText: {
-        fontSize: 11,
-        fontWeight: '600',
-    },
-    infoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 8,
-    },
-    infoIcon: {
-        fontSize: 14,
-        marginRight: 8,
-        width: 20,
-    },
-    infoText: {
-        fontSize: 13,
-        color: 'rgba(255,255,255,0.7)',
-        flex: 1,
-    },
-    ticketFooter: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'flex-end',
-        marginTop: 12,
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(139, 92, 246, 0.2)',
-    },
-    priceLabel: {
-        fontSize: 11,
-        color: 'rgba(255,255,255,0.5)',
-        marginBottom: 2,
-    },
-    priceValue: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#8b5cf6',
-    },
-    bookingCodeContainer: {
-        alignItems: 'flex-end',
-    },
-    bookingCodeLabel: {
-        fontSize: 10,
-        color: 'rgba(255,255,255,0.5)',
-        marginBottom: 2,
-    },
-    bookingCode: {
-        fontSize: 12,
-        fontWeight: '600',
-        color: '#a78bfa',
-        fontFamily: 'monospace',
-    },
-    separator: {
-        height: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginHorizontal: 16,
-    },
-    circleLeft: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        backgroundColor: '#0f0f23',
-        marginLeft: -26,
-    },
-    dottedLine: {
-        flex: 1,
-        height: 1,
-        borderStyle: 'dashed',
-        borderWidth: 1,
-        borderColor: 'rgba(139, 92, 246, 0.3)',
-    },
-    circleRight: {
-        width: 20,
-        height: 20,
-        borderRadius: 10,
-        backgroundColor: '#0f0f23',
-        marginRight: -26,
-    },
-    actionButtons: {
-        flexDirection: 'row',
-        padding: 16,
-        gap: 12,
-    },
-    actionButton: {
-        flex: 1,
-        backgroundColor: '#8b5cf6',
-        paddingVertical: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-    },
-    actionButtonFull: {
-        flex: 1,
-        backgroundColor: '#8b5cf6',
-        paddingVertical: 12,
-        borderRadius: 8,
-        alignItems: 'center',
-    },
-    actionButtonText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    cancelButton: {
-        backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderColor: '#ef4444',
-    },
-    cancelButtonText: {
-        color: '#ef4444',
-    },
-    reviewButton: {
-        backgroundColor: 'transparent',
-        borderWidth: 1,
-        borderColor: '#8b5cf6',
-    },
-    reviewButtonText: {
-        color: '#8b5cf6',
-    },
-    emptyState: {
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 60,
-    },
-    emptyIcon: {
-        fontSize: 64,
-        marginBottom: 16,
-    },
-    emptyTitle: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#fff',
-        marginBottom: 8,
-    },
-    emptyText: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.5)',
-        textAlign: 'center',
-        marginBottom: 24,
-    },
-    browseButton: {
-        backgroundColor: '#8b5cf6',
-        paddingVertical: 12,
-        paddingHorizontal: 32,
-        borderRadius: 8,
-    },
-    browseButtonText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    bottomSpacing: {
-        height: 100,
-    },
+    container: { flex: 1, backgroundColor: '#0f0f23' },
+    loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 60 },
+    loadingText: { marginTop: 16, fontSize: 14, color: 'rgba(255,255,255,0.6)' },
+    header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#1a1a2e', borderBottomWidth: 1, borderBottomColor: 'rgba(139, 92, 246, 0.2)', flexDirection: 'row', alignItems: 'center' },
+    backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(139, 92, 246, 0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+    backIcon: { fontSize: 24, color: '#a78bfa', fontWeight: 'bold' },
+    headerContent: { flex: 1 },
+    headerTitle: { fontSize: 28, fontWeight: 'bold', color: '#fff', marginBottom: 4 },
+    headerSubtitle: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
+    tabs: { flexDirection: 'row', backgroundColor: '#1a1a2e', paddingHorizontal: 20, paddingBottom: 16, gap: 12 },
+    tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 8, backgroundColor: '#0f0f23', gap: 8 },
+    tabActive: { backgroundColor: 'rgba(139, 92, 246, 0.2)' },
+    tabText: { fontSize: 14, fontWeight: '600', color: 'rgba(255,255,255,0.5)' },
+    tabTextActive: { color: '#a78bfa' },
+    badge: { backgroundColor: '#8b5cf6', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, minWidth: 20, alignItems: 'center' },
+    badgeText: { fontSize: 11, fontWeight: 'bold', color: '#fff' },
+    content: { flex: 1 },
+    scrollContent: { padding: 20 },
+    ticketCard: { backgroundColor: '#1a1a2e', borderRadius: 16, marginBottom: 16, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.2)' },
+    ticketContent: { flexDirection: 'row', padding: 16 },
+    poster: { width: 100, height: 150, borderRadius: 12, backgroundColor: '#2a2a3e' },
+    ticketDetails: { flex: 1, marginLeft: 16 },
+    ticketHeader: { marginBottom: 12 },
+    movieTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
+    statusBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+    statusText: { fontSize: 11, fontWeight: '600' },
+    infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+    infoIcon: { fontSize: 14, marginRight: 8, width: 20 },
+    infoText: { fontSize: 13, color: 'rgba(255,255,255,0.7)', flex: 1 },
+    ticketFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(139, 92, 246, 0.2)' },
+    priceLabel: { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 2 },
+    priceValue: { fontSize: 18, fontWeight: 'bold', color: '#8b5cf6' },
+    bookingCodeContainer: { alignItems: 'flex-end' },
+    bookingCodeLabel: { fontSize: 10, color: 'rgba(255,255,255,0.5)', marginBottom: 2 },
+    bookingCode: { fontSize: 12, fontWeight: '600', color: '#a78bfa', fontFamily: 'monospace' },
+    separator: { height: 1, flexDirection: 'row', alignItems: 'center', marginHorizontal: 16 },
+    circleLeft: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#0f0f23', marginLeft: -26 },
+    dottedLine: { flex: 1, height: 1, borderStyle: 'dashed', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.3)' },
+    circleRight: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#0f0f23', marginRight: -26 },
+    actionButtons: { flexDirection: 'row', padding: 16, gap: 12 },
+    actionButton: { flex: 1, backgroundColor: '#8b5cf6', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
+    actionButtonFull: { flex: 1, backgroundColor: '#8b5cf6', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
+    actionButtonText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+    cancelButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#ef4444' },
+    cancelButtonText: { color: '#ef4444' },
+    reviewButton: { backgroundColor: 'transparent', borderWidth: 1, borderColor: '#8b5cf6' },
+    reviewButtonText: { color: '#8b5cf6' },
+    emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
+    emptyIcon: { fontSize: 64, marginBottom: 16 },
+    emptyTitle: { fontSize: 20, fontWeight: 'bold', color: '#fff', marginBottom: 8 },
+    emptyText: { fontSize: 14, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginBottom: 24 },
+    browseButton: { backgroundColor: '#8b5cf6', paddingVertical: 12, paddingHorizontal: 32, borderRadius: 8 },
+    browseButtonText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+    bottomSpacing: { height: 100 },
 });

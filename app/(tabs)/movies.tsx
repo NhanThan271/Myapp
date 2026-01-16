@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 // API Configuration
-const API_BASE_URL = 'https://ltud.up.railway.app';
+const API_BASE_URL = 'https://backend-ltud2.onrender.com';
 
 // Types
 interface Genre {

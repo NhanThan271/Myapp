@@ -3,12 +3,12 @@ import { useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 const { width } = Dimensions.get('window');
 
 // API Configuration
-const API_BASE_URL = 'https://ltud.up.railway.app';
+const API_BASE_URL = 'https://backend-ltud2.onrender.com';
 
 // Types
 interface Genre {
@@ -221,6 +221,8 @@ export default function BookingScreen() {
 
             setShowtimes(filteredShowtimes);
 
+            console.log('Filtered showtimes:', filteredShowtimes.length);
+
         } catch (err: any) {
             console.error('Error fetching showtimes:', err);
             setError('Không thể tải lịch chiếu');
@@ -355,6 +357,7 @@ export default function BookingScreen() {
                         selectedMovie?.id === movie.id && styles.movieCardSelected
                     ]}
                     onPress={() => {
+                        console.log('Selected movie:', movie.title);
                         setSelectedMovie(movie);
                         fetchShowtimes(movie.id);
                     }}
@@ -371,10 +374,9 @@ export default function BookingScreen() {
                     </View>
                 </TouchableOpacity>
             ))}
-
             <TouchableOpacity
-                style={[styles.nextButton, (!selectedMovie || showtimes.length === 0) && styles.nextButtonDisabled]}
-                disabled={!selectedMovie || showtimes.length === 0}
+                style={[styles.nextButton, !selectedMovie && styles.nextButtonDisabled]}
+                disabled={!selectedMovie}
                 onPress={() => setStep(2)}
             >
                 <Text style={styles.nextButtonText}>Tiếp tục</Text>
@@ -399,7 +401,7 @@ export default function BookingScreen() {
                 </TouchableOpacity>
 
                 <Text style={styles.sectionTitle}>Chọn rạp & suất chiếu</Text>
-                <Text style={styles.selectedInfo}>🎬 {selectedMovie?.title}</Text>
+                <Text style={styles.selectedInfo}></Text>
 
                 {loading && (
                     <View style={styles.loadingContainer}>
@@ -697,7 +699,28 @@ export default function BookingScreen() {
 
                 <TouchableOpacity
                     style={styles.confirmButton}
-                    onPress={() => router.push('/(payment)/payment')}
+                    onPress={() => {
+                        if (!selectedShowtime) {
+                            Alert.alert('Lỗi', 'Vui lòng chọn suất chiếu');
+                            return;
+                        }
+                        if (selectedSeats.length === 0) {
+                            Alert.alert('Lỗi', 'Vui lòng chọn ghế');
+                            return;
+                        }
+
+                        console.log('🚀 Navigating to payment with:');
+                        console.log('Showtime ID:', selectedShowtime.id);
+                        console.log('Seat IDs:', selectedSeats);
+
+                        router.push({
+                            pathname: '/(payment)/payment',
+                            params: {
+                                showtimeId: selectedShowtime.id.toString(),
+                                seatIds: JSON.stringify(selectedSeats)
+                            }
+                        });
+                    }}
                 >
                     <Text style={styles.confirmButtonText}>
                         {Object.keys(foodCart).length > 0 ? 'Thanh toán' : 'Bỏ qua & Thanh toán'}
@@ -1288,5 +1311,19 @@ const styles = StyleSheet.create({
     },
     cinemaHeaderInfo: {
         flex: 1,
+    },
+    infoBox: {
+        backgroundColor: '#1a1a2e',
+        padding: 16,
+        borderRadius: 12,
+        marginTop: 12,
+        marginBottom: 12,
+        borderLeftWidth: 4,
+        borderLeftColor: '#FFD700',
+    },
+    infoText: {
+        color: '#fff',
+        fontSize: 14,
+        lineHeight: 20,
     },
 });

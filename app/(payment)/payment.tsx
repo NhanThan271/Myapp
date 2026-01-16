@@ -8,7 +8,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, Touc
 // Types
 interface PaymentMethod {
     id: string;
-    type: 'card' | 'momo' | 'zalopay' | 'banking' | 'cash';
+    type: 'momo' | 'zalopay' | 'banking' | 'cash';
     name: string;
     icon: string;
 }
@@ -47,40 +47,27 @@ interface ShowtimeDetail {
     room: Room;
 }
 
-interface TicketCreateRequest {
-    showtime: {
-        id: number;
-    };
-    seat: {
-        id: number;
-    };
-    price: number;
+interface User {
+    id: number;
+    username: string;
+    email: string;
+    role: string;
 }
 
-const API_URL = 'https://ltud.up.railway.app/api';
+const API_URL = 'https://backend-ltud2.onrender.com/api';
 
 const paymentMethods: PaymentMethod[] = [
     { id: '1', type: 'momo', name: 'Ví MoMo', icon: '🟣' },
     { id: '2', type: 'zalopay', name: 'ZaloPay', icon: '🔵' },
     { id: '3', type: 'banking', name: 'Chuyển khoản ngân hàng', icon: '🏦' },
-    { id: '4', type: 'card', name: 'Thẻ tín dụng/ghi nợ', icon: '💳' },
     { id: '5', type: 'cash', name: 'Thanh toán tại quầy', icon: '💵' },
 ];
 
 export default function PaymentScreen() {
-    // Get params from navigation
     const params = useLocalSearchParams();
-    console.log('🔍 RAW PARAMS:', JSON.stringify(params, null, 2));
 
-    // TEMPORARY: Use test data if params are missing
-    const showtimeId = (params.showtimeId as string) || '1'; // Test với showtime ID = 1
-    const seatIds = params.seatIds
-        ? JSON.parse(params.seatIds as string)
-        : [1, 2]; // Test với seat IDs = [1, 2]
-
-    console.log('📌 PARSED showtimeId:', showtimeId);
-    console.log('📌 PARSED seatIds:', seatIds);
-    console.log('⚠️ Using test data:', !params.showtimeId || !params.seatIds);
+    const showtimeId = params.showtimeId as string;
+    const seatIds = params.seatIds ? JSON.parse(params.seatIds as string) : [];
 
     const [selectedMethod, setSelectedMethod] = useState<string>('1');
     const [promoCode, setPromoCode] = useState<string>('');
@@ -88,15 +75,19 @@ export default function PaymentScreen() {
     const [isProcessing, setIsProcessing] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [authToken, setAuthToken] = useState<string | null>(null);
+    const [currentUser, setCurrentUser] = useState<User | null>(null);
 
-    // Data from API
     const [showtimeDetail, setShowtimeDetail] = useState<ShowtimeDetail | null>(null);
     const [selectedSeats, setSelectedSeats] = useState<Seat[]>([]);
-    const [allSeats, setAllSeats] = useState<Seat[]>([]);
 
     const serviceFee = 5000;
-    const subtotal = showtimeDetail ? showtimeDetail.price * selectedSeats.length : 0;
+    const subtotal = showtimeDetail?.price ? showtimeDetail.price * selectedSeats.length : 0;
     const total = subtotal + serviceFee - discount;
+    const [toast, setToast] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
+
+    const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
+        setToast({ visible: true, message, type });
+    };
 
     useEffect(() => {
         loadAuthToken();
@@ -104,6 +95,7 @@ export default function PaymentScreen() {
 
     useEffect(() => {
         if (authToken && showtimeId) {
+            fetchUserInfo();
             fetchShowtimeDetails();
         }
     }, [authToken, showtimeId]);
@@ -111,7 +103,7 @@ export default function PaymentScreen() {
     const loadAuthToken = async () => {
         try {
             const token = await AsyncStorage.getItem('authToken');
-            console.log('Token loaded:', token ? 'Yes' : 'No');
+            console.log(' Token loaded');
 
             if (!token) {
                 Alert.alert('Lỗi', 'Vui lòng đăng nhập để tiếp tục', [
@@ -121,96 +113,134 @@ export default function PaymentScreen() {
             }
             setAuthToken(token);
         } catch (error) {
-            console.error('Error loading token:', error);
+            console.error('❌ Error loading token:', error);
+        }
+    };
+    const parseJwt = (token: string) => {
+        try {
+            const base64Url = token.split('.')[1];
+            const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+            const jsonPayload = decodeURIComponent(
+                atob(base64)
+                    .split('')
+                    .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                    .join('')
+            );
+            return JSON.parse(jsonPayload);
+        } catch (error) {
+            console.error('❌ Error parsing JWT:', error);
+            return null;
+        }
+    };
+
+    const fetchUserInfo = async () => {
+        try {
+            console.log('🔍 Loading user info...');
+
+            if (!authToken) {
+                throw new Error('No auth token');
+            }
+
+            //  Lấy userId đã lưu từ AsyncStorage
+            const storedUserId = await AsyncStorage.getItem('userId');
+            const storedUsername = await AsyncStorage.getItem('username');
+            const storedEmail = await AsyncStorage.getItem('email');
+            const storedRoles = await AsyncStorage.getItem('roles');
+
+            console.log('📦 Stored data:', {
+                userId: storedUserId,
+                username: storedUsername,
+                email: storedEmail,
+                roles: storedRoles
+            });
+
+            if (!storedUserId) {
+                throw new Error('No userId in storage');
+            }
+
+            const parsedUserId = parseInt(storedUserId, 10);
+
+            if (isNaN(parsedUserId)) {
+                throw new Error('Invalid userId format');
+            }
+
+            //  Set user từ AsyncStorage
+            setCurrentUser({
+                id: parsedUserId,
+                username: storedUsername || '',
+                email: storedEmail || '',
+                role: storedRoles ? JSON.parse(storedRoles)[0] : 'CUSTOMER'
+            });
+
+            console.log(' User info loaded:', parsedUserId);
+
+        } catch (error: any) {
+            console.error('❌ Error loading user info:', error.message);
+            Alert.alert('Lỗi', 'Không thể lấy thông tin người dùng. Vui lòng đăng nhập lại.', [
+                { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') }
+            ]);
+            setIsLoading(false);
         }
     };
 
     const fetchShowtimeDetails = async () => {
         try {
             setIsLoading(true);
-            console.log('=== PAYMENT SCREEN DEBUG ===');
-            console.log('1. Fetching showtime ID:', showtimeId);
-            console.log('2. Selected seat IDs:', seatIds);
-            console.log('3. Auth token exists:', authToken ? 'YES' : 'NO');
-            console.log('4. API URL:', `${API_URL}/customer/showtimes/${showtimeId}`);
+            console.log('🎬 Fetching showtime:', showtimeId);
 
-            // Fetch showtime details
-            console.log('5. Starting API call...');
             const showtimeResponse = await axios.get(
                 `${API_URL}/customer/showtimes/${showtimeId}`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`,
-                    },
-                    timeout: 10000 // 10 seconds timeout
-                }
+                { headers: { 'Authorization': `Bearer ${authToken}` }, timeout: 10000 }
             );
 
-            console.log('6. Showtime API response received:', showtimeResponse.status);
-            console.log('7. Showtime data:', JSON.stringify(showtimeResponse.data, null, 2));
+            console.log(' Showtime loaded');
             setShowtimeDetail(showtimeResponse.data);
 
-            // Fetch all seats in the room (CUSTOMER can access this endpoint)
             const roomId = showtimeResponse.data.room?.id;
-            console.log('8. Room ID from showtime:', roomId);
-
             if (!roomId) {
-                throw new Error('Room ID not found in showtime response');
+                console.error('❌ Room ID not found');
+                throw new Error('Room ID not found');
             }
 
-            console.log('9. Fetching seats for room:', roomId);
-            console.log('10. API URL:', `${API_URL}/customer/seats/room/${roomId}`);
-
+            console.log('💺 Fetching seats for room:', roomId);
             const seatsResponse = await axios.get(
                 `${API_URL}/customer/seats/room/${roomId}`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${authToken}`,
-                    },
-                    timeout: 10000
-                }
+                { headers: { 'Authorization': `Bearer ${authToken}` }, timeout: 10000 }
             );
 
-            console.log('11. Seats API response received:', seatsResponse.status);
-            console.log('12. Number of seats:', seatsResponse.data.length);
-            console.log('13. All seats data:', JSON.stringify(seatsResponse.data, null, 2));
-            setAllSeats(seatsResponse.data);
+            console.log(' Seats loaded:', seatsResponse.data.length);
 
-            // Filter selected seats from all seats
             if (seatIds.length > 0) {
                 const filteredSeats = seatsResponse.data.filter((seat: Seat) =>
                     seatIds.includes(seat.id)
                 );
-                console.log('14. Filtered selected seats:', JSON.stringify(filteredSeats, null, 2));
-                console.log('15. Number of selected seats:', filteredSeats.length);
+                console.log(' Selected seats:', filteredSeats.length);
                 setSelectedSeats(filteredSeats);
-            } else {
-                console.log('14. WARNING: No seat IDs provided!');
             }
 
-            console.log('16. SUCCESS: All data loaded successfully!');
+            console.log('🎉 ALL DATA LOADED SUCCESSFULLY');
 
         } catch (error: any) {
-            console.error('❌ ERROR in fetchShowtimeDetails:');
-            console.error('Error message:', error.message);
-            console.error('Error response:', error.response?.data);
-            console.error('Error status:', error.response?.status);
-            console.error('Full error:', error);
+            console.error('❌ ERROR in fetchShowtimeDetails:', error.message);
+            console.error('Response status:', error.response?.status);
+            console.error('Response data:', error.response?.data);
 
             if (error.response?.status === 401 || error.response?.status === 403) {
-                Alert.alert('Lỗi xác thực', 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', [
+                Alert.alert('Lỗi xác thực', 'Phiên đăng nhập đã hết hạn.', [
                     { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') }
                 ]);
             } else {
-                Alert.alert('Lỗi', `Không thể tải thông tin đặt vé: ${error.response?.data?.message || error.message}`);
+                Alert.alert('Lỗi', `Không thể tải thông tin: ${error.message}`);
             }
         } finally {
-            console.log('17. Setting isLoading to false');
+            console.log('🏁 Setting isLoading = false');
             setIsLoading(false);
         }
     };
 
     const handleApplyPromo = () => {
+        if (!promoCode.trim()) return;
+
         if (promoCode.toUpperCase() === 'NEWUSER') {
             setDiscount(20000);
             Alert.alert('Thành công', 'Đã áp dụng mã giảm giá 20.000đ');
@@ -229,148 +259,191 @@ export default function PaymentScreen() {
         return { date: dateStr, time: timeStr };
     };
 
+    //  GỬI ĐÚNG FORMAT CreateTicketRequest
     const createTickets = async () => {
-        if (!authToken || !showtimeDetail) {
-            Alert.alert('Lỗi', 'Thông tin không hợp lệ');
+        if (!authToken || !showtimeDetail || !currentUser || !currentUser.id || isNaN(currentUser.id)) {
+            console.error('❌ Invalid data:', {
+                authToken: !!authToken,
+                showtimeDetail: !!showtimeDetail,
+                currentUser: currentUser,
+                userId: currentUser?.id
+            });
+            Alert.alert('Lỗi', 'Thông tin người dùng không hợp lệ. Vui lòng đăng nhập lại.');
             return false;
         }
-
         try {
-            console.log('Creating tickets for seats:', selectedSeats);
+            console.log('🎫 Creating tickets for user:', currentUser.id);
+            const createdTickets = [];
 
-            const ticketPromises = selectedSeats.map(seat => {
-                const ticketData: TicketCreateRequest = {
-                    showtime: {
-                        id: showtimeDetail.id
-                    },
-                    seat: {
-                        id: seat.id
-                    },
-                    price: showtimeDetail.price
+            for (const seat of selectedSeats) {
+                console.log(`📤 Booking seat ${seat.rowSeat}${seat.number}`);
+
+                // Format đúng theo CreateTicketRequest của backend
+                const requestBody = {
+                    showtimeId: showtimeDetail.id,
+                    seatId: seat.id,
+                    userId: currentUser.id
                 };
 
-                console.log('Creating ticket with data:', ticketData);
+                console.log('Request:', JSON.stringify(requestBody));
 
-                return axios.post(
-                    `${API_URL}/customer/tickets`,
-                    ticketData,
-                    {
-                        headers: {
-                            'Authorization': `Bearer ${authToken}`,
-                            'Content-Type': 'application/json',
+                try {
+                    const response = await axios.post(
+                        `${API_URL}/customer/tickets`,
+                        requestBody,
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${authToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                            timeout: 15000
                         }
-                    }
-                );
-            });
+                    );
 
-            const responses = await Promise.all(ticketPromises);
+                    console.log(` Ticket ${response.data.id} created for ${seat.rowSeat}${seat.number}`);
+                    createdTickets.push(response.data);
 
-            console.log('Tickets created successfully:', responses.map(r => r.data));
+                } catch (seatError: any) {
+                    console.error(`❌ Failed for ${seat.rowSeat}${seat.number}:`, seatError.response?.data);
+                    console.error('Error status:', seatError.response?.status);
+                    console.error('Request body:', requestBody);
+
+                    const errorMsg = seatError.response?.data?.message || 'Lỗi không xác định';
+                    throw new Error(`Không thể đặt ghế ${seat.rowSeat}${seat.number}: ${errorMsg}`);
+                }
+
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            console.log('🎉 All tickets created! Total:', createdTickets.length);
             return true;
+
         } catch (error: any) {
-            console.error('Error creating tickets:', error);
-            console.error('Error response:', error.response?.data);
+            console.error('❌ createTickets error:', error);
 
-            if (error.response) {
-                console.error('Response status:', error.response.status);
-                console.error('Response data:', error.response.data);
+            if (error.message.includes('Không thể đặt ghế')) {
+                Alert.alert('Lỗi đặt vé', error.message);
+            } else if (error.response) {
+                const status = error.response.status;
+                const message = error.response.data?.message;
 
-                if (error.response.status === 401 || error.response.status === 403) {
-                    Alert.alert('Lỗi xác thực', 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.', [
+                if (status === 401 || status === 403) {
+                    Alert.alert('Lỗi xác thực', 'Phiên đăng nhập đã hết hạn.', [
                         { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') }
                     ]);
+                } else if (status === 409) {
+                    Alert.alert('Ghế đã được đặt', message || 'Vui lòng chọn ghế khác.');
+                } else if (status === 400) {
+                    Alert.alert('Lỗi dữ liệu', message || 'Dữ liệu không hợp lệ.');
+                } else if (status === 404) {
+                    Alert.alert('Không tìm thấy', message || 'Không tìm thấy thông tin.');
                 } else {
-                    const errorMessage = error.response.data?.message || 'Không thể tạo vé. Vui lòng thử lại.';
-                    Alert.alert('Lỗi', errorMessage);
+                    Alert.alert('Lỗi', message || 'Không thể tạo vé.');
                 }
             } else if (error.request) {
-                console.error('Request error:', error.request);
-                Alert.alert('Lỗi kết nối', 'Không thể kết nối đến server. Vui lòng kiểm tra kết nối mạng.');
+                Alert.alert('Lỗi kết nối', 'Không thể kết nối đến server.');
             } else {
-                console.error('Error:', error.message);
-                Alert.alert('Lỗi', 'Đã xảy ra lỗi không xác định');
+                Alert.alert('Lỗi', error.message || 'Lỗi không xác định');
             }
 
             return false;
         }
     };
 
+    const TICKETS_STORAGE_KEY = 'user_tickets';
+
     const handlePayment = async () => {
-        if (!authToken) {
+        if (!authToken || !currentUser) {
             Alert.alert('Lỗi', 'Vui lòng đăng nhập để tiếp tục', [
                 { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') }
             ]);
             return;
         }
 
+        //  Kiểm tra nếu chọn chuyển khoản ngân hàng -> chuyển sang BankingPaymentScreen
+        if (selectedMethod === '3') { // '3' là ID của "Chuyển khoản ngân hàng"
+            router.push({
+                pathname: '/(payment)/bankingPayment',
+                params: {
+                    movieTitle: showtimeDetail!.movie.title,
+                    cinema: showtimeDetail!.room.cinema.name,
+                    showtime: `${time} - ${date}`,
+                    seats: selectedSeats.map(s => `${s.rowSeat}${s.number}`).join(', '),
+                    amount: subtotal.toString(),
+                    serviceFee: serviceFee.toString(),
+                    discount: discount.toString(),
+                    // Thêm các thông tin cần thiết để tạo vé sau khi thanh toán thành công
+                    showtimeId: showtimeDetail!.id.toString(),
+                    seatIds: JSON.stringify(selectedSeats.map(s => s.id)),
+                }
+            });
+            return;
+        }
+
+        //  Xử lý các phương thức thanh toán khác (MoMo, ZaloPay, Cash)
         setIsProcessing(true);
 
         try {
-            // Create tickets via API
+            console.log('💳 Starting payment...');
             const success = await createTickets();
 
             if (success) {
-                // Simulate payment processing
-                await new Promise(resolve => setTimeout(resolve, 1500));
+                console.log(' Payment successful!');
 
-                Alert.alert(
-                    'Thanh toán thành công! 🎉',
-                    'Vé của bạn đã được đặt thành công',
-                    [
-                        {
-                            text: 'Xem vé',
-                            onPress: () => router.push('/(ticket)/myticket'),
-                        },
-                    ]
-                );
+                // Lưu tickets vào AsyncStorage
+                try {
+                    const newTickets = selectedSeats.map((seat, index) => ({
+                        id: Date.now() + index,
+                        showtime: showtimeDetail!,
+                        seat: seat,
+                        price: showtimeDetail!.price,
+                        bookingDate: new Date().toISOString(),
+                        status: 'BOOKED' as const
+                    }));
+
+                    const storedTickets = await AsyncStorage.getItem(
+                        `${TICKETS_STORAGE_KEY}_${currentUser.id}`
+                    );
+
+                    const existingTickets = storedTickets ? JSON.parse(storedTickets) : [];
+                    const allTickets = [...existingTickets, ...newTickets];
+
+                    await AsyncStorage.setItem(
+                        `${TICKETS_STORAGE_KEY}_${currentUser.id}`,
+                        JSON.stringify(allTickets)
+                    );
+
+                    console.log(' Tickets saved to storage:', newTickets.length);
+                } catch (storageError) {
+                    console.error('⚠️ Failed to save tickets to storage:', storageError);
+                }
+
+                setIsProcessing(false);
+                showToast('Đặt vé thành công!', 'success');
+
+                setTimeout(() => {
+                    console.log('🎫 Navigating to myticket...');
+                    router.replace('/(ticket)/myticket');
+                }, 1500);
+
+            } else {
+                setIsProcessing(false);
+                Alert.alert('Lỗi', 'Không thể hoàn tất thanh toán');
             }
-        } catch (error) {
-            console.error('Payment error:', error);
-            Alert.alert('Lỗi', 'Đã xảy ra lỗi trong quá trình thanh toán');
-        } finally {
+        } catch (error: any) {
+            console.error('❌ Payment error:', error);
             setIsProcessing(false);
+            Alert.alert('Lỗi', error.message || 'Đã xảy ra lỗi trong quá trình thanh toán');
         }
     };
 
-    if (isLoading) {
+    if (!showtimeDetail || !currentUser) {
         return (
             <View style={[styles.container, styles.centerContent]}>
-                <ActivityIndicator size="large" color="#8b5cf6" />
-                <Text style={styles.loadingText}>Đang tải thông tin...</Text>
-                <Text style={[styles.loadingText, { marginTop: 20, fontSize: 12, color: '#666' }]}>
-                    ShowtimeId: {showtimeId || 'MISSING'}
+                <Text style={styles.errorText}>
+                    {!showtimeDetail ? 'Không tìm thấy thông tin suất chiếu' : 'Đang tải thông tin người dùng...'}
                 </Text>
-                <Text style={[styles.loadingText, { fontSize: 12, color: '#666' }]}>
-                    SeatIds: {seatIds.length > 0 ? seatIds.join(', ') : 'MISSING'}
-                </Text>
-                <Text style={[styles.loadingText, { fontSize: 12, color: '#666' }]}>
-                    Token: {authToken ? 'EXISTS' : 'MISSING'}
-                </Text>
-
-                {/* Test button */}
-                <TouchableOpacity
-                    style={{ marginTop: 20, padding: 10, backgroundColor: '#ef4444', borderRadius: 8 }}
-                    onPress={() => {
-                        console.log('🔴 FORCE TEST');
-                        console.log('showtimeId:', showtimeId);
-                        console.log('seatIds:', seatIds);
-                        console.log('authToken exists:', !!authToken);
-                    }}
-                >
-                    <Text style={{ color: '#fff' }}>Debug Console</Text>
-                </TouchableOpacity>
-            </View>
-        );
-    }
-
-    if (!showtimeDetail) {
-        return (
-            <View style={[styles.container, styles.centerContent]}>
-                <Text style={styles.errorText}>Không tìm thấy thông tin suất chiếu</Text>
-                <TouchableOpacity
-                    style={styles.backButtonError}
-                    onPress={() => router.back()}
-                >
+                <TouchableOpacity style={styles.backButtonError} onPress={() => router.back()}>
                     <Text style={styles.backButtonText}>Quay lại</Text>
                 </TouchableOpacity>
             </View>
@@ -381,7 +454,6 @@ export default function PaymentScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity style={styles.headerBackButton} onPress={() => router.back()}>
                     <Text style={styles.backIcon}>←</Text>
@@ -393,7 +465,6 @@ export default function PaymentScreen() {
             </View>
 
             <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                {/* Booking Summary */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Thông tin đặt vé</Text>
                     <View style={styles.summaryCard}>
@@ -410,9 +481,7 @@ export default function PaymentScreen() {
                             </View>
                             <View style={styles.infoRow}>
                                 <Text style={styles.infoIcon}>📅</Text>
-                                <Text style={styles.infoText}>
-                                    {date} • {time}
-                                </Text>
+                                <Text style={styles.infoText}>{date} • {time}</Text>
                             </View>
                             <View style={styles.infoRow}>
                                 <Text style={styles.infoIcon}>🎭</Text>
@@ -436,7 +505,6 @@ export default function PaymentScreen() {
                     </View>
                 </View>
 
-                {/* Payment Method */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Phương thức thanh toán</Text>
                     <View style={styles.paymentMethods}>
@@ -453,22 +521,14 @@ export default function PaymentScreen() {
                                     <Text style={styles.paymentIcon}>{method.icon}</Text>
                                     <Text style={styles.paymentName}>{method.name}</Text>
                                 </View>
-                                <View
-                                    style={[
-                                        styles.radio,
-                                        selectedMethod === method.id && styles.radioSelected,
-                                    ]}
-                                >
-                                    {selectedMethod === method.id && (
-                                        <View style={styles.radioDot} />
-                                    )}
+                                <View style={[styles.radio, selectedMethod === method.id && styles.radioSelected]}>
+                                    <Text>{selectedMethod === method.id && <View style={styles.radioDot} />}</Text>
                                 </View>
                             </TouchableOpacity>
                         ))}
                     </View>
                 </View>
 
-                {/* Promo Code */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Mã giảm giá</Text>
                     <View style={styles.promoCard}>
@@ -488,12 +548,9 @@ export default function PaymentScreen() {
                             <Text style={styles.applyButtonText}>Áp dụng</Text>
                         </TouchableOpacity>
                     </View>
-                    <Text style={styles.promoHint}>
-                        💡 Thử: NEWUSER, CINEMA50
-                    </Text>
+                    <Text style={styles.promoHint}>💡 Thử: NEWUSER, CINEMA50</Text>
                 </View>
 
-                {/* Price Breakdown */}
                 <View style={styles.section}>
                     <Text style={styles.sectionTitle}>Chi tiết thanh toán</Text>
                     <View style={styles.priceCard}>
@@ -501,23 +558,17 @@ export default function PaymentScreen() {
                             <Text style={styles.priceLabel}>
                                 Giá vé ({selectedSeats.length} x {showtimeDetail.price.toLocaleString('vi-VN')}đ)
                             </Text>
-                            <Text style={styles.priceValue}>
-                                {subtotal.toLocaleString('vi-VN')}đ
-                            </Text>
+                            <Text style={styles.priceValue}>{subtotal.toLocaleString('vi-VN')}đ</Text>
                         </View>
 
                         <View style={styles.priceRow}>
                             <Text style={styles.priceLabel}>Phí dịch vụ</Text>
-                            <Text style={styles.priceValue}>
-                                {serviceFee.toLocaleString('vi-VN')}đ
-                            </Text>
+                            <Text style={styles.priceValue}>{serviceFee.toLocaleString('vi-VN')}đ</Text>
                         </View>
 
                         {discount > 0 && (
                             <View style={styles.priceRow}>
-                                <Text style={[styles.priceLabel, styles.discountLabel]}>
-                                    Giảm giá
-                                </Text>
+                                <Text style={[styles.priceLabel, styles.discountLabel]}>Giảm giá</Text>
                                 <Text style={[styles.priceValue, styles.discountValue]}>
                                     -{discount.toLocaleString('vi-VN')}đ
                                 </Text>
@@ -528,14 +579,11 @@ export default function PaymentScreen() {
 
                         <View style={styles.priceRow}>
                             <Text style={styles.totalLabel}>Tổng cộng</Text>
-                            <Text style={styles.totalValue}>
-                                {total.toLocaleString('vi-VN')}đ
-                            </Text>
+                            <Text style={styles.totalValue}>{total.toLocaleString('vi-VN')}đ</Text>
                         </View>
                     </View>
                 </View>
 
-                {/* Terms */}
                 <View style={styles.termsContainer}>
                     <Text style={styles.termsText}>
                         Bằng việc tiếp tục, bạn đồng ý với{' '}
@@ -547,7 +595,6 @@ export default function PaymentScreen() {
                 <View style={styles.bottomSpacing} />
             </ScrollView>
 
-            {/* Bottom Bar */}
             <View style={styles.bottomBar}>
                 <View style={styles.totalInfo}>
                     <Text style={styles.bottomLabel}>Tổng thanh toán</Text>
@@ -561,7 +608,7 @@ export default function PaymentScreen() {
                     {isProcessing ? (
                         <View style={styles.processingContainer}>
                             <ActivityIndicator color="#fff" size="small" />
-                            <Text style={styles.payButtonText}> Đang xử lý...</Text>
+                            <Text style={styles.payButtonText}>Đang xử lý...</Text>
                         </View>
                     ) : (
                         <Text style={styles.payButtonText}>💳 Thanh toán</Text>
@@ -573,324 +620,61 @@ export default function PaymentScreen() {
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#0f0f23',
-    },
-    centerContent: {
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    loadingText: {
-        color: '#fff',
-        fontSize: 16,
-        marginTop: 16,
-    },
-    errorText: {
-        color: '#ef4444',
-        fontSize: 16,
-        marginBottom: 20,
-        textAlign: 'center',
-        paddingHorizontal: 20,
-    },
-    header: {
-        paddingTop: 60,
-        paddingHorizontal: 20,
-        paddingBottom: 20,
-        backgroundColor: '#1a1a2e',
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(139, 92, 246, 0.2)',
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    headerBackButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: 'rgba(139, 92, 246, 0.2)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12,
-    },
-    backIcon: {
-        fontSize: 24,
-        color: '#a78bfa',
-        fontWeight: 'bold',
-    },
-    headerContent: {
-        flex: 1,
-    },
-    headerTitle: {
-        fontSize: 28,
-        fontWeight: 'bold',
-        color: '#fff',
-        marginBottom: 4,
-    },
-    headerSubtitle: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.6)',
-    },
-    content: {
-        flex: 1,
-    },
-    section: {
-        marginTop: 24,
-        paddingHorizontal: 20,
-    },
-    sectionTitle: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: 'rgba(255,255,255,0.6)',
-        marginBottom: 12,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    summaryCard: {
-        backgroundColor: '#1a1a2e',
-        borderRadius: 16,
-        padding: 16,
-        flexDirection: 'row',
-        borderWidth: 1,
-        borderColor: 'rgba(139, 92, 246, 0.2)',
-    },
-    moviePoster: {
-        width: 80,
-        height: 120,
-        borderRadius: 12,
-        backgroundColor: '#2a2a3e',
-    },
-    summaryDetails: {
-        flex: 1,
-        marginLeft: 16,
-    },
-    movieTitle: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#fff',
-        marginBottom: 12,
-    },
-    infoRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: 6,
-    },
-    infoIcon: {
-        fontSize: 12,
-        marginRight: 8,
-        width: 16,
-    },
-    infoText: {
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.7)',
-        flex: 1,
-    },
-    paymentMethods: {
-        gap: 12,
-    },
-    paymentMethod: {
-        backgroundColor: '#1a1a2e',
-        borderRadius: 12,
-        padding: 16,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderWidth: 2,
-        borderColor: 'rgba(139, 92, 246, 0.2)',
-    },
-    paymentMethodSelected: {
-        borderColor: '#8b5cf6',
-        backgroundColor: 'rgba(139, 92, 246, 0.1)',
-    },
-    paymentMethodLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        flex: 1,
-    },
-    paymentIcon: {
-        fontSize: 24,
-        marginRight: 12,
-    },
-    paymentName: {
-        fontSize: 15,
-        color: '#fff',
-        fontWeight: '500',
-    },
-    radio: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        borderWidth: 2,
-        borderColor: 'rgba(139, 92, 246, 0.5)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    radioSelected: {
-        borderColor: '#8b5cf6',
-    },
-    radioDot: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: '#8b5cf6',
-    },
-    promoCard: {
-        backgroundColor: '#1a1a2e',
-        borderRadius: 12,
-        padding: 4,
-        flexDirection: 'row',
-        borderWidth: 1,
-        borderColor: 'rgba(139, 92, 246, 0.2)',
-    },
-    promoInput: {
-        flex: 1,
-        paddingHorizontal: 16,
-        paddingVertical: 12,
-        fontSize: 15,
-        color: '#fff',
-        fontWeight: '600',
-    },
-    applyButton: {
-        backgroundColor: '#8b5cf6',
-        paddingHorizontal: 20,
-        paddingVertical: 12,
-        borderRadius: 8,
-        justifyContent: 'center',
-    },
-    applyButtonText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: '#fff',
-    },
-    promoHint: {
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.5)',
-        marginTop: 8,
-        fontStyle: 'italic',
-    },
-    priceCard: {
-        backgroundColor: '#1a1a2e',
-        borderRadius: 16,
-        padding: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(139, 92, 246, 0.2)',
-    },
-    priceRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 16,
-    },
-    priceLabel: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.7)',
-    },
-    priceValue: {
-        fontSize: 14,
-        color: '#fff',
-        fontWeight: '600',
-    },
-    discountLabel: {
-        color: '#10b981',
-    },
-    discountValue: {
-        color: '#10b981',
-    },
-    divider: {
-        height: 1,
-        backgroundColor: 'rgba(139, 92, 246, 0.2)',
-        marginVertical: 8,
-    },
-    totalLabel: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
-    totalValue: {
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#8b5cf6',
-    },
-    termsContainer: {
-        paddingHorizontal: 20,
-        marginTop: 24,
-    },
-    termsText: {
-        fontSize: 12,
-        color: 'rgba(255,255,255,0.5)',
-        textAlign: 'center',
-        lineHeight: 18,
-    },
-    termsLink: {
-        color: '#a78bfa',
-        fontWeight: '600',
-    },
-    bottomSpacing: {
-        height: 140,
-    },
-    bottomBar: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: '#1a1a2e',
-        padding: 20,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(139, 92, 246, 0.2)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 10,
-    },
-    totalInfo: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: 12,
-    },
-    bottomLabel: {
-        fontSize: 14,
-        color: 'rgba(255,255,255,0.6)',
-    },
-    bottomTotal: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#8b5cf6',
-    },
-    payButton: {
-        backgroundColor: '#8b5cf6',
-        paddingVertical: 16,
-        borderRadius: 12,
-        alignItems: 'center',
-        shadowColor: '#8b5cf6',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-        elevation: 5,
-    },
-    payButtonDisabled: {
-        backgroundColor: '#6b7280',
-        shadowOpacity: 0,
-    },
-    payButtonText: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: '#fff',
-    },
-    processingContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    backButtonError: {
-        backgroundColor: '#8b5cf6',
-        paddingHorizontal: 24,
-        paddingVertical: 12,
-        borderRadius: 8,
-    },
-    backButtonText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '600',
-    },
+    container: { flex: 1, backgroundColor: '#0f0f23' },
+    centerContent: { justifyContent: 'center', alignItems: 'center' },
+    loadingText: { color: '#fff', fontSize: 16, marginTop: 16 },
+    errorText: { color: '#ef4444', fontSize: 16, marginBottom: 20, textAlign: 'center', paddingHorizontal: 20 },
+    header: { paddingTop: 60, paddingHorizontal: 20, paddingBottom: 20, backgroundColor: '#1a1a2e', borderBottomWidth: 1, borderBottomColor: 'rgba(139, 92, 246, 0.2)', flexDirection: 'row', alignItems: 'center' },
+    headerBackButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(139, 92, 246, 0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+    backIcon: { fontSize: 24, color: '#a78bfa', fontWeight: 'bold' },
+    headerContent: { flex: 1 },
+    headerTitle: { fontSize: 28, fontWeight: 'bold', color: '#fff', marginBottom: 4 },
+    headerSubtitle: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
+    content: { flex: 1 },
+    section: { marginTop: 24, paddingHorizontal: 20 },
+    sectionTitle: { fontSize: 16, fontWeight: 'bold', color: 'rgba(255,255,255,0.6)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+    summaryCard: { backgroundColor: '#1a1a2e', borderRadius: 16, padding: 16, flexDirection: 'row', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.2)' },
+    moviePoster: { width: 80, height: 120, borderRadius: 12, backgroundColor: '#2a2a3e' },
+    summaryDetails: { flex: 1, marginLeft: 16 },
+    movieTitle: { fontSize: 16, fontWeight: 'bold', color: '#fff', marginBottom: 12 },
+    infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+    infoIcon: { fontSize: 12, marginRight: 8, width: 16 },
+    infoText: { fontSize: 12, color: 'rgba(255,255,255,0.7)', flex: 1 },
+    paymentMethods: { gap: 12 },
+    paymentMethod: { backgroundColor: '#1a1a2e', borderRadius: 12, padding: 16, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderWidth: 2, borderColor: 'rgba(139, 92, 246, 0.2)' },
+    paymentMethodSelected: { borderColor: '#8b5cf6', backgroundColor: 'rgba(139, 92, 246, 0.1)' },
+    paymentMethodLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+    paymentIcon: { fontSize: 24, marginRight: 12 },
+    paymentName: { fontSize: 15, color: '#fff', fontWeight: '500' },
+    radio: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: 'rgba(139, 92, 246, 0.5)', justifyContent: 'center', alignItems: 'center' },
+    radioSelected: { borderColor: '#8b5cf6' },
+    radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#8b5cf6' },
+    promoCard: { backgroundColor: '#1a1a2e', borderRadius: 12, padding: 4, flexDirection: 'row', borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.2)' },
+    promoInput: { flex: 1, paddingHorizontal: 16, paddingVertical: 12, fontSize: 15, color: '#fff', fontWeight: '600' },
+    applyButton: { backgroundColor: '#8b5cf6', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8, justifyContent: 'center' },
+    applyButtonText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+    promoHint: { fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 8, fontStyle: 'italic' },
+    priceCard: { backgroundColor: '#1a1a2e', borderRadius: 16, padding: 20, borderWidth: 1, borderColor: 'rgba(139, 92, 246, 0.2)' },
+    priceRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
+    priceLabel: { fontSize: 14, color: 'rgba(255,255,255,0.7)' },
+    priceValue: { fontSize: 14, color: '#fff', fontWeight: '600' },
+    discountLabel: { color: '#10b981' },
+    discountValue: { color: '#10b981' },
+    divider: { height: 1, backgroundColor: 'rgba(139, 92, 246, 0.2)', marginVertical: 8 },
+    totalLabel: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
+    totalValue: { fontSize: 20, fontWeight: 'bold', color: '#8b5cf6' },
+    termsContainer: { paddingHorizontal: 20, marginTop: 24 },
+    termsText: { fontSize: 12, color: 'rgba(255,255,255,0.5)', textAlign: 'center', lineHeight: 18 },
+    termsLink: { color: '#a78bfa', fontWeight: '600' },
+    bottomSpacing: { height: 140 },
+    bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#1a1a2e', padding: 20, borderTopWidth: 1, borderTopColor: 'rgba(139, 92, 246, 0.2)', shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 10 },
+    totalInfo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+    bottomLabel: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
+    bottomTotal: { fontSize: 24, fontWeight: 'bold', color: '#8b5cf6' },
+    payButton: { backgroundColor: '#8b5cf6', paddingVertical: 16, borderRadius: 12, alignItems: 'center', shadowColor: '#8b5cf6', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+    payButtonDisabled: { backgroundColor: '#6b7280', shadowOpacity: 0 },
+    payButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
+    processingContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+    backButtonError: { backgroundColor: '#8b5cf6', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+    backButtonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

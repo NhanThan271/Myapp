@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-const API_BASE_URL = 'https://ltud.up.railway.app/api/auth';
+const API_BASE_URL = 'https://backend-ltud2.onrender.com/api/auth';
 
 export default function RegisterScreen() {
   const router = useRouter();

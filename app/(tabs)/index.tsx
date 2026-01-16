@@ -10,7 +10,7 @@ import { ActivityIndicator, Dimensions, ScrollView, StyleSheet, Text, TouchableO
 const { width } = Dimensions.get('window');
 
 // API Configuration
-const API_BASE_URL = 'https://ltud.up.railway.app';
+const API_BASE_URL = 'https://backend-ltud2.onrender.com';
 
 // Types
 interface Genre {
