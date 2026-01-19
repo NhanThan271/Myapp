@@ -62,18 +62,18 @@ export default function LoginScreen() {
 
       const { token, id, username: userName, email, roles } = response.data;
 
-      // ✅ Decode token để debug
+      //  Decode token để debug
       const decoded = parseJwt(token);
       console.log('🔓 Decoded token:', JSON.stringify(decoded, null, 2));
 
-      // ✅ Lưu thông tin vào AsyncStorage
+      //  Lưu thông tin vào AsyncStorage
       await AsyncStorage.setItem('authToken', token);
-      await AsyncStorage.setItem('userId', id.toString()); // ✅ Dùng 'id' từ response
+      await AsyncStorage.setItem('userId', id.toString()); //  Dùng 'id' từ response
       await AsyncStorage.setItem('username', userName);
       await AsyncStorage.setItem('email', email || '');
       await AsyncStorage.setItem('roles', JSON.stringify(roles));
 
-      console.log('✅ Data saved to AsyncStorage');
+      console.log(' Data saved to AsyncStorage');
 
       showToast('Đăng nhập thành công!', 'success');
       login();
@@ -102,7 +102,7 @@ export default function LoginScreen() {
     }
   };
 
-  // ✅ Helper function parse JWT
+  //  Helper function parse JWT
   const parseJwt = (token: string) => {
     try {
       const base64Url = token.split('.')[1];

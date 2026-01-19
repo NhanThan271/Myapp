@@ -39,7 +39,7 @@ export default function ForgotPasswordScreen() {
         setToast({ visible: true, message, type });
     };
 
-    // ✅ Gửi OTP qua API
+    //  Gửi OTP qua API
     const handleSendOTP = async () => {
         if (!email) {
             showToast('Vui lòng nhập email!', 'error');
@@ -60,7 +60,7 @@ export default function ForgotPasswordScreen() {
                 email: email.trim()
             });
 
-            console.log('✅ OTP sent:', response.data);
+            console.log(' OTP sent:', response.data);
 
             showToast('Mã OTP đã được gửi đến email của bạn!', 'success');
 
@@ -84,7 +84,7 @@ export default function ForgotPasswordScreen() {
         }
     };
 
-    // ✅ Xác thực OTP và chuyển sang bước đặt mật khẩu
+    //  Xác thực OTP và chuyển sang bước đặt mật khẩu
     const handleVerifyOTP = () => {
         if (!otp) {
             showToast('Vui lòng nhập mã OTP!', 'error');
@@ -125,7 +125,7 @@ export default function ForgotPasswordScreen() {
         return { label: 'Yếu', color: '#dc2626' };
     };
 
-    // ✅ Reset mật khẩu qua API
+    //  Reset mật khẩu qua API
     const handleResetPassword = async () => {
         if (!newPassword || !confirmPassword) {
             showToast('Vui lòng nhập đầy đủ thông tin!', 'error');
@@ -152,7 +152,7 @@ export default function ForgotPasswordScreen() {
                 newPassword: newPassword
             });
 
-            console.log('✅ Password reset successful:', response.data);
+            console.log(' Password reset successful:', response.data);
 
             showToast('Đặt lại mật khẩu thành công!', 'success');
 
@@ -181,7 +181,7 @@ export default function ForgotPasswordScreen() {
         }
     };
 
-    // ✅ Gửi lại OTP
+    //  Gửi lại OTP
     const handleResendOTP = async () => {
         if (!email) {
             showToast('Email không hợp lệ!', 'error');

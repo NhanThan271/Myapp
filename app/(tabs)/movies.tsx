@@ -16,6 +16,12 @@ interface Genre {
     name: string;
 }
 
+interface Cinema {
+    id: number;
+    name: string;
+    address: string;
+}
+
 interface Movie {
     id: number;
     title: string;
@@ -33,8 +39,14 @@ export default function MoviesScreen() {
     const [selectedTab, setSelectedTab] = useState<'NOW_SHOWING' | 'COMING_SOON'>('NOW_SHOWING');
     const [searchQuery, setSearchQuery] = useState('');
     const [allMovies, setAllMovies] = useState<Movie[]>([]);
+    const [allGenres, setAllGenres] = useState<Genre[]>([]);
+    const [allCinemas, setAllCinemas] = useState<Cinema[]>([]);
+    const [selectedGenre, setSelectedGenre] = useState<number | null>(null);
+    const [selectedCinema, setSelectedCinema] = useState<number | null>(null);
+    const [showFilters, setShowFilters] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [sortByRating, setSortByRating] = useState<'desc' | 'asc' | null>(null);
 
     useEffect(() => {
         if (params.tab === 'coming-soon') {
@@ -47,6 +59,8 @@ export default function MoviesScreen() {
     // Fetch movies từ API
     useEffect(() => {
         fetchMovies();
+        fetchGenres();
+        fetchCinemas();
     }, []);
 
     // Search movies khi user nhập từ khóa
@@ -62,55 +76,67 @@ export default function MoviesScreen() {
         return () => clearTimeout(delaySearch);
     }, [searchQuery]);
 
+    const fetchGenres = async () => {
+        try {
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) return;
+
+            const response = await axios.get(
+                `${API_BASE_URL}/api/customer/genres`,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+
+            console.log('Genres:', response.data);
+            setAllGenres(response.data);
+        } catch (err) {
+            console.error('Error fetching genres:', err);
+        }
+    };
+
+    const fetchCinemas = async () => {
+        try {
+            const token = await AsyncStorage.getItem('authToken');
+            if (!token) return;
+
+            const response = await axios.get(
+                `${API_BASE_URL}/api/customer/cinemas`,
+                { headers: { 'Authorization': `Bearer ${token}` } }
+            );
+
+            console.log('Cinemas:', response.data);
+            setAllCinemas(response.data);
+        } catch (err) {
+            console.error('Error fetching cinemas:', err);
+        }
+    };
     const fetchMovies = async () => {
         try {
             setLoading(true);
             setError(null);
 
-            console.log('Fetching movies from:', API_BASE_URL);
-
-            // Lấy token từ AsyncStorage
             const token = await AsyncStorage.getItem('authToken');
-            console.log('Token:', token ? 'Present' : 'MISSING');
-
             if (!token) {
                 setError('Vui lòng đăng nhập để xem phim');
                 setLoading(false);
                 return;
             }
 
-            // Cấu hình headers với token
-            const config = {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            };
+            const url = `${API_BASE_URL}/api/customer/movies`;
 
-            // Fetch tất cả phim
-            const allMoviesResponse = await axios.get(
-                `${API_BASE_URL}/api/customer/movies`,
-                config
-            );
+            console.log('Fetching from:', url);
 
-            console.log('Raw response data type:', typeof allMoviesResponse.data);
+            const response = await axios.get(url, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
 
-            // Parse data nếu là string
-            let rawData = allMoviesResponse.data;
+            let rawData = response.data;
+
             if (typeof rawData === 'string') {
-                try {
-                    rawData = JSON.parse(rawData);
-                } catch (e) {
-                    console.error('JSON parse error, trying to clean data...');
-                    const cleanedString = rawData.substring(0, rawData.lastIndexOf('}') + 1);
-                    rawData = JSON.parse(cleanedString);
-                }
+                rawData = JSON.parse(rawData);
             }
 
-            // Xử lý circular reference: chỉ lấy level đầu tiên
             let movies: Movie[] = [];
-
             if (Array.isArray(rawData)) {
-                // Clean data để loại bỏ circular reference
                 movies = rawData.map((movie: any) => ({
                     id: movie.id,
                     title: movie.title,
@@ -124,12 +150,10 @@ export default function MoviesScreen() {
                         name: g.name,
                     })) || [],
                     releaseDate: movie.releaseDate,
+                    showtimes: movie.showtimes || [],
                 }));
-            } else {
-                throw new Error('Response is not an array');
             }
 
-            console.log('Cleaned movies:', movies);
             setAllMovies(movies);
 
         } catch (err: any) {
@@ -155,6 +179,9 @@ export default function MoviesScreen() {
             setLoading(false);
         }
     };
+    useEffect(() => {
+        fetchMovies();
+    }, []);
 
     const searchMovies = async (keyword: string) => {
         try {
@@ -271,17 +298,34 @@ export default function MoviesScreen() {
 
     // Filter movies
     const filteredMovies = allMovies.filter(movie => {
+        // Filter theo tab (Đang chiếu / Sắp chiếu)
         const matchesTab = movie.status === selectedTab;
 
-        // Nếu có search query, filter ở client side
+        // Filter theo search query
         if (searchQuery.trim()) {
             const matchesSearch = movie.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 getGenresString(movie.genres).toLowerCase().includes(searchQuery.toLowerCase());
-            return matchesTab && matchesSearch;
+            if (!matchesSearch) return false;
+        }
+
+        // Filter theo thể loại
+        if (selectedGenre) {
+            const hasGenre = movie.genres.some(g => g.id === selectedGenre);
+            if (!hasGenre) return false;
         }
 
         return matchesTab;
-    });
+    })
+        .sort((a, b) => {
+            // Sort theo rating
+            if (sortByRating === 'desc') {
+                return b.rating - a.rating; // Cao xuống thấp: 9.5, 8.0, 7.5...
+            }
+            if (sortByRating === 'asc') {
+                return a.rating - b.rating; // Thấp lên cao: 5.0, 6.5, 8.0...
+            }
+            return 0; // Mặc định: giữ nguyên thứ tự
+        });
 
     return (
         <View style={styles.container}>
@@ -304,6 +348,106 @@ export default function MoviesScreen() {
                             <Text style={styles.clearIcon}>✕</Text>
                         </TouchableOpacity>
                     )}
+                </View>
+                {/* Filter Panel */}
+                <View style={styles.filterPanel}>
+                    {/* Genre Filter */}
+                    <View style={styles.filterSection}>
+                        <Text style={styles.filterLabel}>🎭 Thể loại</Text>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.filterScroll}
+                        >
+                            <TouchableOpacity
+                                style={[
+                                    styles.filterChip,
+                                    !selectedGenre && styles.filterChipActive
+                                ]}
+                                onPress={() => setSelectedGenre(null)}
+                            >
+                                <Text style={[
+                                    styles.filterChipText,
+                                    !selectedGenre && styles.filterChipTextActive
+                                ]}>
+                                    Tất cả
+                                </Text>
+                            </TouchableOpacity>
+
+                            {allGenres.map(genre => (
+                                <TouchableOpacity
+                                    key={genre.id}
+                                    style={[
+                                        styles.filterChip,
+                                        selectedGenre === genre.id && styles.filterChipActive
+                                    ]}
+                                    onPress={() => setSelectedGenre(
+                                        selectedGenre === genre.id ? null : genre.id
+                                    )}
+                                >
+                                    <Text style={[
+                                        styles.filterChipText,
+                                        selectedGenre === genre.id && styles.filterChipTextActive
+                                    ]}>
+                                        {genre.name}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                        </ScrollView>
+                    </View>
+                    <View style={[styles.filterSection, { marginBottom: 0 }]}>
+                        <Text style={styles.filterLabel}>⭐Đánh giá</Text>
+                        <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            style={styles.filterScroll}
+                        >
+                            <TouchableOpacity
+                                style={[
+                                    styles.filterChip,
+                                    !sortByRating && styles.filterChipActive
+                                ]}
+                                onPress={() => setSortByRating(null)}
+                            >
+                                <Text style={[
+                                    styles.filterChipText,
+                                    !sortByRating && styles.filterChipTextActive
+                                ]}>
+                                    Mặc định
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={[
+                                    styles.filterChip,
+                                    sortByRating === 'desc' && styles.filterChipActive
+                                ]}
+                                onPress={() => setSortByRating('desc')}
+                            >
+                                <Text style={[
+                                    styles.filterChipText,
+                                    sortByRating === 'desc' && styles.filterChipTextActive
+                                ]}>
+                                    Cao nhất
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={[
+                                    styles.filterChip,
+                                    sortByRating === 'asc' && styles.filterChipActive
+                                ]}
+                                onPress={() => setSortByRating('asc')}
+                            >
+                                <Text style={[
+                                    styles.filterChipText,
+                                    sortByRating === 'asc' && styles.filterChipTextActive
+                                ]}>
+                                    Thấp nhất
+                                </Text>
+                            </TouchableOpacity>
+                        </ScrollView>
+                    </View>
                 </View>
 
                 {/* Tabs */}
@@ -437,6 +581,61 @@ export default function MoviesScreen() {
 }
 
 const styles = StyleSheet.create({
+    filterButton: {
+        backgroundColor: '#222',
+        paddingVertical: 10,
+        paddingHorizontal: 16,
+        borderRadius: 8,
+        marginBottom: 12,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    filterButtonText: {
+        color: '#fff',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    filterPanel: {
+        backgroundColor: '#1a1a1a',
+        borderRadius: 12,
+        padding: 16,
+        marginBottom: 12,
+    },
+    filterSection: {
+        marginBottom: 16,
+    },
+    filterLabel: {
+        color: '#fff',
+        fontSize: 13,
+        fontWeight: '600',
+        marginBottom: 8,
+    },
+    filterScroll: {
+        flexDirection: 'row',
+    },
+    filterChip: {
+        backgroundColor: '#333',
+        paddingHorizontal: 16,
+        paddingVertical: 8,
+        borderRadius: 20,
+        marginRight: 8,
+        borderWidth: 1,
+        borderColor: 'transparent',
+    },
+    filterChipActive: {
+        backgroundColor: '#E50914',
+        borderColor: '#E50914',
+    },
+    filterChipText: {
+        color: '#999',
+        fontSize: 13,
+        fontWeight: '500',
+    },
+    filterChipTextActive: {
+        color: '#fff',
+        fontWeight: '600',
+    },
     container: {
         flex: 1,
         backgroundColor: '#000',

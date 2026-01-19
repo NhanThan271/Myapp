@@ -8,7 +8,7 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, Touc
 // Types
 interface PaymentMethod {
     id: string;
-    type: 'momo' | 'zalopay' | 'banking' | 'cash';
+    type: 'momo' | 'zalopay' | 'banking';
     name: string;
     icon: string;
 }
@@ -60,7 +60,6 @@ const paymentMethods: PaymentMethod[] = [
     { id: '1', type: 'momo', name: 'Ví MoMo', icon: '🟣' },
     { id: '2', type: 'zalopay', name: 'ZaloPay', icon: '🔵' },
     { id: '3', type: 'banking', name: 'Chuyển khoản ngân hàng', icon: '🏦' },
-    { id: '5', type: 'cash', name: 'Thanh toán tại quầy', icon: '💵' },
 ];
 
 export default function PaymentScreen() {
