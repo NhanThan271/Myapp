@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native';
+import { Animated, Dimensions, Image, StyleSheet, Text, View } from 'react-native';
 
 const { height } = Dimensions.get('window');
 
@@ -69,13 +69,17 @@ export default function SplashScreen({ onFinish }) {
                 {/* Logo */}
                 <View style={styles.logoContainer}>
                     <View style={styles.logo}>
-                        <Text style={styles.logoIcon}>🎬</Text>
+                        <Image
+                            source={require('../../assets/images/LogoApp.png')}
+                            style={styles.logoImage}
+                            resizeMode="contain"
+                        />
                     </View>
                 </View>
 
                 {/* App name */}
-                <Text style={styles.appName}>CinemaHub</Text>
-                <Text style={styles.tagline}>Book Your Perfect Movie Experience</Text>
+                <Text style={styles.appName}>NCinema</Text>
+                <Text style={styles.tagline}>Đặt vé dễ dàng, tận hưởng phim hay</Text>
 
                 {/* Loading bar */}
                 <View style={styles.progressBarContainer}>
@@ -87,7 +91,7 @@ export default function SplashScreen({ onFinish }) {
                     />
                 </View>
 
-                <Text style={styles.loadingText}>Loading...</Text>
+                <Text style={styles.loadingText}>Đang tải...</Text>
             </Animated.View>
         </View>
     );

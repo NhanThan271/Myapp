@@ -215,8 +215,6 @@ export default function MoviesScreen() {
                 config
             );
 
-            console.log('Search response:', searchResponse.data);
-
             // Parse data nếu là string
             let rawData = searchResponse.data;
             if (typeof rawData === 'string') {

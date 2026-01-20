@@ -309,6 +309,20 @@ export default function BookingScreen() {
         const date = new Date(dateString);
         return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
     };
+    const formatDate = (dateString: string): string => {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('vi-VN', {
+            weekday: 'short',
+            day: '2-digit',
+            month: '2-digit'
+        });
+    };
+
+    const isShowtimePast = (startTime: string): boolean => {
+        const showtimeDate = new Date(startTime);
+        const now = new Date();
+        return showtimeDate <= now;
+    };
 
     const getGenresString = (genres: Genre[]): string => {
         if (!genres || genres.length === 0) return 'Chưa phân loại';
@@ -385,8 +399,11 @@ export default function BookingScreen() {
     );
 
     const renderCinemaAndShowtimeSelection = () => {
+        // Lọc bỏ các xuất chiếu đã qua
+        const validShowtimes = showtimes.filter(showtime => !isShowtimePast(showtime.startTime));
+
         const showtimesByCinema: { [key: number]: Showtime[] } = {};
-        showtimes.forEach(showtime => {
+        validShowtimes.forEach(showtime => {
             const cinemaId = showtime.room.cinema.id;
             if (!showtimesByCinema[cinemaId]) {
                 showtimesByCinema[cinemaId] = [];
@@ -413,6 +430,23 @@ export default function BookingScreen() {
                     const cinema = cinemaShowtimes[0].room.cinema;
                     const isExpanded = expandedCinemaId === parseInt(cinemaId);
 
+                    // Nhóm xuất chiếu theo ngày
+                    const showtimesByDate: { [key: string]: Showtime[] } = {};
+                    cinemaShowtimes.forEach(showtime => {
+                        const dateKey = new Date(showtime.startTime).toDateString();
+                        if (!showtimesByDate[dateKey]) {
+                            showtimesByDate[dateKey] = [];
+                        }
+                        showtimesByDate[dateKey].push(showtime);
+                    });
+
+                    // Sắp xếp theo thời gian
+                    Object.keys(showtimesByDate).forEach(dateKey => {
+                        showtimesByDate[dateKey].sort((a, b) =>
+                            new Date(a.startTime).getTime() - new Date(b.startTime).getTime()
+                        );
+                    });
+
                     return (
                         <View key={cinemaId} style={styles.cinemaGroup}>
                             {/* Header rạp - có thể click để expand/collapse */}
@@ -433,41 +467,54 @@ export default function BookingScreen() {
                                 </Text>
                             </TouchableOpacity>
 
-                            {/* Danh sách suất chiếu - chỉ hiện khi expanded */}
+                            {/* Danh sách xuất chiếu theo ngày */}
                             {isExpanded && (
-                                <View style={styles.showtimeGrid}>
-                                    {cinemaShowtimes.map(showtime => (
-                                        <TouchableOpacity
-                                            key={showtime.id}
-                                            style={[
-                                                styles.showtimeCard,
-                                                selectedShowtime?.id === showtime.id && styles.showtimeCardSelected
-                                            ]}
-                                            onPress={() => {
-                                                setSelectedShowtime(showtime);
-                                                fetchSeats(showtime.room.id);
-                                            }}
-                                        >
-                                            <Text style={[
-                                                styles.showtimeTime,
-                                                selectedShowtime?.id === showtime.id && styles.showtimeTimeSelected
-                                            ]}>
-                                                {formatTime(showtime.startTime)}
-                                            </Text>
-                                            <Text style={[
-                                                styles.showtimeType,
-                                                selectedShowtime?.id === showtime.id && styles.showtimeTypeSelected
-                                            ]}>
-                                                {showtime.room.name}
-                                            </Text>
-                                            <Text style={[
-                                                styles.showtimePrice,
-                                                selectedShowtime?.id === showtime.id && styles.showtimePriceSelected
-                                            ]}>
-                                                {showtime.price.toLocaleString('vi-VN')}đ
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
+                                <View style={styles.showtimesContainer}>
+                                    {Object.entries(showtimesByDate)
+                                        .sort(([dateA], [dateB]) =>
+                                            new Date(dateA).getTime() - new Date(dateB).getTime()
+                                        )
+                                        .map(([dateKey, dayShowtimes]) => (
+                                            <View key={dateKey} style={styles.dateSection}>
+                                                <Text style={styles.dateHeader}>
+                                                    {formatDate(dayShowtimes[0].startTime)}
+                                                </Text>
+                                                <View style={styles.showtimeGrid}>
+                                                    {dayShowtimes.map(showtime => (
+                                                        <TouchableOpacity
+                                                            key={showtime.id}
+                                                            style={[
+                                                                styles.showtimeCard,
+                                                                selectedShowtime?.id === showtime.id && styles.showtimeCardSelected
+                                                            ]}
+                                                            onPress={() => {
+                                                                setSelectedShowtime(showtime);
+                                                                fetchSeats(showtime.room.id);
+                                                            }}
+                                                        >
+                                                            <Text style={[
+                                                                styles.showtimeTime,
+                                                                selectedShowtime?.id === showtime.id && styles.showtimeTimeSelected
+                                                            ]}>
+                                                                {formatTime(showtime.startTime)}
+                                                            </Text>
+                                                            <Text style={[
+                                                                styles.showtimeType,
+                                                                selectedShowtime?.id === showtime.id && styles.showtimeTypeSelected
+                                                            ]}>
+                                                                {showtime.room.name}
+                                                            </Text>
+                                                            <Text style={[
+                                                                styles.showtimePrice,
+                                                                selectedShowtime?.id === showtime.id && styles.showtimePriceSelected
+                                                            ]}>
+                                                                {showtime.price.toLocaleString('vi-VN')}đ
+                                                            </Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                            </View>
+                                        ))}
                                 </View>
                             )}
                         </View>
@@ -759,6 +806,19 @@ export default function BookingScreen() {
 }
 
 const styles = StyleSheet.create({
+    showtimesContainer: {
+        marginTop: 12,
+    },
+    dateSection: {
+        marginBottom: 20,
+    },
+    dateHeader: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: '#E50914',
+        marginBottom: 12,
+        paddingLeft: 4,
+    },
     container: {
         flex: 1,
         backgroundColor: '#0a0a0f',

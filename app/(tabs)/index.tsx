@@ -71,8 +71,6 @@ export default function HomeScreen() {
         config
       );
 
-      console.log('Raw response data type:', typeof allMoviesResponse.data);
-
       // Parse data nếu là string
       let rawData = allMoviesResponse.data;
       if (typeof rawData === 'string') {
