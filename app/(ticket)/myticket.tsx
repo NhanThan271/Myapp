@@ -103,7 +103,7 @@ export default function MyTicketsScreen() {
             }
             setAuthToken(token);
         } catch (error) {
-            console.error('❌ Error loading token:', error);
+            console.error('Error loading token:', error);
         }
     };
 
@@ -140,7 +140,7 @@ export default function MyTicketsScreen() {
             console.log(' User info loaded:', parsedUserId);
 
         } catch (error: any) {
-            console.error('❌ Error loading user info:', error.message);
+            console.error('Error loading user info:', error.message);
             Alert.alert('Lỗi', 'Không thể lấy thông tin người dùng. Vui lòng đăng nhập lại.', [
                 { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') }
             ]);
@@ -148,16 +148,15 @@ export default function MyTicketsScreen() {
         }
     };
 
-    const fetchTickets = async () => {
+    const fetchTickets = async (retryCount = 0) => {
         try {
             setIsLoading(true);
-            console.log('🎫 Fetching tickets for user:', currentUser?.id);
+            console.log('🎫 Fetching tickets for user:', currentUser?.id, 'Retry:', retryCount);
 
             if (!currentUser?.id) {
                 throw new Error('User ID not found');
             }
 
-            // Thử lấy từ API trước
             try {
                 const response = await axios.get(
                     `${API_URL}/customer/tickets/user/${currentUser.id}`,
@@ -166,23 +165,20 @@ export default function MyTicketsScreen() {
                         timeout: 10000
                     }
                 );
-                console.log('📊 Raw API Response:', JSON.stringify(response.data, null, 2));
-                if (response.data && Array.isArray(response.data)) {
-                    console.log(' Tickets loaded from API:', response.data.length);
 
-                    response.data.forEach((ticket, index) => {
-                        console.log(`Ticket ${index}:`, {
-                            id: ticket.id,
-                            status: ticket.status,
-                            bookedAt: ticket.bookedAt,
-                            showtimeStartTime: ticket.showtime?.startTime,
-                            movieTitle: ticket.showtime?.movie?.title
-                        });
-                    });
+                console.log('📊 Raw API Response:', JSON.stringify(response.data, null, 2));
+
+                if (response.data && Array.isArray(response.data)) {
+                    console.log('Tickets loaded from API:', response.data.length);
+
+                    if (response.data.length === 0 && retryCount < 2) {
+                        console.log('No tickets found, retrying in 2 seconds...');
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        return fetchTickets(retryCount + 1);
+                    }
 
                     setTickets(response.data);
 
-                    // Lưu vào AsyncStorage để backup
                     await AsyncStorage.setItem(
                         `${TICKETS_STORAGE_KEY}_${currentUser.id}`,
                         JSON.stringify(response.data)
@@ -190,29 +186,28 @@ export default function MyTicketsScreen() {
                     return;
                 }
             } catch (apiError: any) {
-                console.error('⚠️ API Error:', {
+                console.error('API Error:', {
                     status: apiError.response?.status,
                     message: apiError.response?.data?.message || apiError.message,
                     data: apiError.response?.data
                 });
 
-                // Nếu API fail, lấy từ AsyncStorage
                 const storedTickets = await AsyncStorage.getItem(
                     `${TICKETS_STORAGE_KEY}_${currentUser.id}`
                 );
 
                 if (storedTickets) {
                     const parsedTickets = JSON.parse(storedTickets);
-                    console.log(' Tickets loaded from storage:', parsedTickets.length);
+                    console.log('📦 Tickets loaded from storage:', parsedTickets.length);
                     setTickets(parsedTickets);
                 } else {
-                    console.log('ℹ️ No tickets found');
+                    console.log('No tickets found');
                     setTickets([]);
                 }
             }
 
         } catch (error: any) {
-            console.error('❌ Error fetching tickets:', error.message);
+            console.error('Error fetching tickets:', error.message);
             setTickets([]);
         } finally {
             setIsLoading(false);
@@ -335,13 +330,13 @@ export default function MyTicketsScreen() {
                                     }
                                 ).catch(error => {
                                     // Log error nhưng không throw
-                                    console.log(`⚠️ Cancel API returned error for ticket ${ticket.id}:`, error.response?.status);
+                                    console.log(`Cancel API returned error for ticket ${ticket.id}:`, error.response?.status);
                                     return { error: true, ticketId: ticket.id };
                                 })
                             );
 
                             const results = await Promise.all(cancelPromises);
-                            console.log('✅ Cancel API calls completed');
+                            console.log('Cancel API calls completed');
 
                             // Đợi 1 giây rồi fetch lại để verify
                             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -378,13 +373,13 @@ export default function MyTicketsScreen() {
                                     }
                                 }
                             } catch (fetchError) {
-                                console.error('⚠️ Failed to verify cancellation:', fetchError);
+                                console.error('Failed to verify cancellation:', fetchError);
                                 // Vẫn hiển thị success vì optimistic update đã chạy
                                 Alert.alert('Đã gửi yêu cầu hủy vé', 'Vui lòng kiểm tra lại sau vài giây');
                             }
 
                         } catch (error: any) {
-                            console.error('❌ Cancel ticket error:', error);
+                            console.error('Cancel ticket error:', error);
 
                             // Revert optimistic update nếu có lỗi nghiêm trọng
                             await fetchTickets();

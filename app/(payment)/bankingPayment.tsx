@@ -36,6 +36,9 @@ interface BookingData {
     amount: number;
     serviceFee: number;
     discount: number;
+
+    showtimeId: string;
+    seatIds: string;
 }
 
 export default function BankingPaymentScreen() {
@@ -48,7 +51,9 @@ export default function BankingPaymentScreen() {
         seats: params.seats as string || 'A5, A6',
         amount: Number(params.amount) || 200000,
         serviceFee: Number(params.serviceFee) || 5000,
-        discount: Number(params.discount) || 0
+        discount: Number(params.discount) || 0,
+        showtimeId: params.showtimeId as string || '',
+        seatIds: params.seatIds as string || '[]'
     };
 
     const [paymentInfo, setPaymentInfo] = useState<PaymentInfo | null>(null);
@@ -75,6 +80,164 @@ export default function BankingPaymentScreen() {
             Alert.alert('Hết thời gian', 'Phiên thanh toán đã hết hạn. Vui lòng tạo lại.');
         }
     }, [paymentInfo, countdown]);
+
+    const createTicketsAfterPayment = async () => {
+        try {
+            console.log('🎫 Creating tickets after successful payment...');
+
+            // Parse seat IDs từ params
+            const seatIds = params.seatIds ? JSON.parse(params.seatIds as string) : [];
+            const showtimeId = params.showtimeId as string;
+
+            if (!seatIds || seatIds.length === 0 || !showtimeId) {
+                console.error('Missing seat or showtime data');
+                return false;
+            }
+
+            // Lấy user ID
+            const storedUserId = await AsyncStorage.getItem('userId');
+            if (!storedUserId) {
+                console.error('No user ID found');
+                return false;
+            }
+
+            const userId = parseInt(storedUserId, 10);
+            if (isNaN(userId)) {
+                console.error('Invalid user ID');
+                return false;
+            }
+
+            console.log('📊 Booking data:', {
+                userId,
+                showtimeId,
+                seatIds,
+                seatCount: seatIds.length
+            });
+
+            // Tạo vé cho từng ghế
+            const createdTickets = [];
+            for (const seatId of seatIds) {
+                const requestBody = {
+                    showtimeId: parseInt(showtimeId),
+                    seatId: seatId,
+                    userId: userId
+                };
+
+                console.log(`📤 Creating ticket for seat ${seatId}...`);
+
+                try {
+                    const response = await axios.post(
+                        `${API_URL}/customer/tickets`,
+                        requestBody,
+                        {
+                            headers: {
+                                'Authorization': `Bearer ${authToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                            timeout: 15000
+                        }
+                    );
+
+                    console.log(`Ticket created: ${response.data.id}`);
+                    createdTickets.push(response.data);
+
+                } catch (seatError: any) {
+                    console.error(`Failed to create ticket for seat ${seatId}:`, {
+                        status: seatError.response?.status,
+                        data: seatError.response?.data
+                    });
+
+                    // Nếu ghế đã được đặt, tiếp tục với ghế khác
+                    if (seatError.response?.status === 409) {
+                        console.warn(`Seat ${seatId} already booked, skipping...`);
+                        continue;
+                    }
+
+                    throw seatError;
+                }
+
+                // Delay nhỏ giữa các request
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            if (createdTickets.length > 0) {
+                console.log(`🎉 Successfully created ${createdTickets.length} tickets!`);
+                return true;
+            } else {
+                console.error('No tickets were created');
+                return false;
+            }
+
+        } catch (error: any) {
+            console.error('Error creating tickets:', error);
+            return false;
+        }
+    };
+
+    useEffect(() => {
+        if (!paymentInfo) return;
+
+        let hasCreatedTickets = false; // Flag để tránh tạo vé nhiều lần
+
+        const checkPaymentStatus = async () => {
+            try {
+                console.log('🔍 Checking payment status for order:', paymentInfo.orderCode);
+
+                const response = await axios.get(
+                    `${API_URL}/payos/check/${paymentInfo.orderCode}`,
+                    {
+                        headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+                        timeout: 10000
+                    }
+                );
+
+                console.log('Payment check response:', JSON.stringify(response.data, null, 2));
+
+                const status = response.data?.data?.status || response.data?.status;
+                console.log('📊 Payment status:', status);
+
+                if ((status === 'PAID' || status === 'paid' || status === 'COMPLETED') && !hasCreatedTickets) {
+                    hasCreatedTickets = true; // Đánh dấu đã tạo vé
+
+                    console.log('💳 Payment successful! Creating tickets...');
+
+                    const ticketsCreated = await createTicketsAfterPayment();
+
+                    if (ticketsCreated) {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+
+                        Alert.alert(
+                            'Thanh toán thành công! 🎉',
+                            'Vé của bạn đã được tạo.',
+                            [{
+                                text: 'Xem vé',
+                                onPress: () => router.replace('/(ticket)/myticket')
+                            }]
+                        );
+                    } else {
+                        Alert.alert(
+                            'Cảnh báo',
+                            'Thanh toán thành công nhưng không thể tạo vé. Vui lòng liên hệ hỗ trợ.',
+                            [{
+                                text: 'OK',
+                                onPress: () => router.back()
+                            }]
+                        );
+                    }
+                }
+            } catch (error: any) {
+                console.error('Payment check error:', error.response?.data || error.message);
+            }
+        };
+
+        checkPaymentStatus();
+        const interval = setInterval(checkPaymentStatus, 3000);
+
+        return () => {
+            clearInterval(interval);
+            hasCreatedTickets = false; // Reset flag khi unmount
+        };
+    }, [paymentInfo, authToken]);
 
     const loadAuthToken = async () => {
         try {
@@ -146,7 +309,7 @@ export default function BankingPaymentScreen() {
             const payosData = payosResponse.data || payosResponse;
 
             if (!payosData.checkoutUrl && !payosData.qrCode) {
-                console.error('❌ Response structure:', payosResponse);
+                console.error('Response structure:', payosResponse);
                 throw new Error('PayOS không trả về thông tin thanh toán');
             }
 
@@ -166,8 +329,8 @@ export default function BankingPaymentScreen() {
             setLoading(false);
 
         } catch (err: any) {
-            console.error('❌ Full error:', err);
-            console.error('❌ Response data:', err.response?.data);
+            console.error('Full error:', err);
+            console.error('Response data:', err.response?.data);
 
             setError(
                 err.response?.data?.desc ||
@@ -192,35 +355,36 @@ export default function BankingPaymentScreen() {
             });
         }
     };
-
-    useEffect(() => {
+    const manualCheckPayment = async () => {
         if (!paymentInfo) return;
 
-        const checkPaymentStatus = async () => {
-            try {
-                const response = await axios.get(
-                    `${API_URL}/payos/check/${paymentInfo.orderCode}`,
-                    {
-                        headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
-                        timeout: 10000
-                    }
-                );
-
-                if (response.data.status === 'PAID') {
-                    Alert.alert(
-                        'Thanh toán thành công! 🎉',
-                        'Vé của bạn đã được xác nhận.',
-                        [{ text: 'OK', onPress: () => router.replace('/(ticket)/myticket') }]
-                    );
+        setLoading(true);
+        try {
+            const response = await axios.get(
+                `${API_URL}/payos/check/${paymentInfo.orderCode}`,
+                {
+                    headers: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
+                    timeout: 10000
                 }
-            } catch (error) {
-                // Silent fail
-            }
-        };
+            );
 
-        const interval = setInterval(checkPaymentStatus, 5000);
-        return () => clearInterval(interval);
-    }, [paymentInfo, authToken]);
+            const status = response.data?.data?.status || response.data?.status;
+
+            if (status === 'PAID' || status === 'paid' || status === 'COMPLETED') {
+                Alert.alert(
+                    'Thanh toán thành công! 🎉',
+                    'Vé của bạn đã được xác nhận.',
+                    [{ text: 'OK', onPress: () => router.replace('/(ticket)/myticket') }]
+                );
+            } else {
+                Alert.alert('Thông báo', 'Chưa nhận được thanh toán. Vui lòng kiểm tra lại.');
+            }
+        } catch (error) {
+            Alert.alert('Lỗi', 'Không thể kiểm tra trạng thái thanh toán');
+        } finally {
+            setLoading(false);
+        }
+    };
 
     return (
         <View style={styles.container}>
@@ -274,7 +438,7 @@ export default function BankingPaymentScreen() {
 
                 {error ? (
                     <View style={styles.errorBox}>
-                        <Text style={styles.errorText}>⚠️ {error}</Text>
+                        <Text style={styles.errorText}>{error}</Text>
                     </View>
                 ) : null}
 
@@ -309,6 +473,20 @@ export default function BankingPaymentScreen() {
                                 <Text style={styles.qrHint}>Sử dụng app ngân hàng để quét mã</Text>
                             </View>
                         </View>
+
+                        {paymentInfo && (
+                            <View style={styles.section}>
+                                <TouchableOpacity
+                                    style={styles.secondaryButton}
+                                    onPress={manualCheckPayment}
+                                    disabled={loading}
+                                >
+                                    <Text style={styles.buttonText}>
+                                        {loading ? '⏳ Đang kiểm tra...' : '🔍 Kiểm tra thanh toán'}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
 
                         {/*  THÊM NÚT MỞ LINK THANH TOÁN */}
                         {paymentInfo.checkoutUrl && (
@@ -368,7 +546,7 @@ export default function BankingPaymentScreen() {
                                     important
                                 />
                                 <Text style={styles.warningText}>
-                                    ⚠️ Vui lòng nhập CHÍNH XÁC nội dung chuyển khoản
+                                    Vui lòng nhập CHÍNH XÁC nội dung chuyển khoản
                                 </Text>
                             </View>
                         </View>

@@ -111,7 +111,7 @@ export default function PaymentScreen() {
             }
             setAuthToken(token);
         } catch (error) {
-            console.error('❌ Error loading token:', error);
+            console.error('Error loading token:', error);
         }
     };
     const parseJwt = (token: string) => {
@@ -126,7 +126,7 @@ export default function PaymentScreen() {
             );
             return JSON.parse(jsonPayload);
         } catch (error) {
-            console.error('❌ Error parsing JWT:', error);
+            console.error('Error parsing JWT:', error);
             return null;
         }
     };
@@ -173,7 +173,7 @@ export default function PaymentScreen() {
             console.log(' User info loaded:', parsedUserId);
 
         } catch (error: any) {
-            console.error('❌ Error loading user info:', error.message);
+            console.error('Error loading user info:', error.message);
             Alert.alert('Lỗi', 'Không thể lấy thông tin người dùng. Vui lòng đăng nhập lại.', [
                 { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') }
             ]);
@@ -196,7 +196,7 @@ export default function PaymentScreen() {
 
             const roomId = showtimeResponse.data.room?.id;
             if (!roomId) {
-                console.error('❌ Room ID not found');
+                console.error('Room ID not found');
                 throw new Error('Room ID not found');
             }
 
@@ -219,7 +219,7 @@ export default function PaymentScreen() {
             console.log('🎉 ALL DATA LOADED SUCCESSFULLY');
 
         } catch (error: any) {
-            console.error('❌ ERROR in fetchShowtimeDetails:', error.message);
+            console.error('ERROR in fetchShowtimeDetails:', error.message);
             console.error('Response status:', error.response?.status);
             console.error('Response data:', error.response?.data);
 
@@ -260,7 +260,7 @@ export default function PaymentScreen() {
     //  GỬI ĐÚNG FORMAT CreateTicketRequest
     const createTickets = async () => {
         if (!authToken || !showtimeDetail || !currentUser || !currentUser.id || isNaN(currentUser.id)) {
-            console.error('❌ Invalid data:', {
+            console.error('Invalid data:', {
                 authToken: !!authToken,
                 showtimeDetail: !!showtimeDetail,
                 currentUser: currentUser,
@@ -302,7 +302,7 @@ export default function PaymentScreen() {
                     createdTickets.push(response.data);
 
                 } catch (seatError: any) {
-                    console.error(`❌ Failed for ${seat.rowSeat}${seat.number}:`, seatError.response?.data);
+                    console.error(`Failed for ${seat.rowSeat}${seat.number}:`, seatError.response?.data);
                     console.error('Error status:', seatError.response?.status);
                     console.error('Request body:', requestBody);
 
@@ -317,7 +317,7 @@ export default function PaymentScreen() {
             return true;
 
         } catch (error: any) {
-            console.error('❌ createTickets error:', error);
+            console.error('createTickets error:', error);
 
             if (error.message.includes('Không thể đặt ghế')) {
                 Alert.alert('Lỗi đặt vé', error.message);
@@ -412,7 +412,7 @@ export default function PaymentScreen() {
 
                     console.log(' Tickets saved to storage:', newTickets.length);
                 } catch (storageError) {
-                    console.error('⚠️ Failed to save tickets to storage:', storageError);
+                    console.error('Failed to save tickets to storage:', storageError);
                 }
 
                 setIsProcessing(false);
@@ -428,7 +428,7 @@ export default function PaymentScreen() {
                 Alert.alert('Lỗi', 'Không thể hoàn tất thanh toán');
             }
         } catch (error: any) {
-            console.error('❌ Payment error:', error);
+            console.error('Payment error:', error);
             setIsProcessing(false);
             Alert.alert('Lỗi', error.message || 'Đã xảy ra lỗi trong quá trình thanh toán');
         }
