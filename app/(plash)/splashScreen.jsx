@@ -70,7 +70,7 @@ export default function SplashScreen({ onFinish }) {
                 <View style={styles.logoContainer}>
                     <View style={styles.logo}>
                         <Image
-                            source={require('../../assets/images/LogoApp.png')}
+                            source={require('../../assets/images/splash.png')}
                             style={styles.logoImage}
                             resizeMode="contain"
                         />

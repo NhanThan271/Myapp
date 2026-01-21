@@ -58,7 +58,7 @@ export default function BankingPaymentScreen() {
     const [copiedField, setCopiedField] = useState('');
     const [authToken, setAuthToken] = useState<string | null>(null);
 
-    const totalAmount = bookingData.amount + bookingData.serviceFee - bookingData.discount;
+    const totalAmount = bookingData.amount - bookingData.discount;
 
     useEffect(() => {
         loadAuthToken();
@@ -244,7 +244,6 @@ export default function BankingPaymentScreen() {
                         <InfoRow label="Ghế" value={bookingData.seats} bold />
                         <View style={styles.divider} />
                         <InfoRow label="Tiền vé" value={`${bookingData.amount.toLocaleString('vi-VN')}đ`} />
-                        <InfoRow label="Phí dịch vụ" value={`${bookingData.serviceFee.toLocaleString('vi-VN')}đ`} />
                         <InfoRow
                             label="Tổng cộng"
                             value={`${totalAmount.toLocaleString('vi-VN')}đ`}

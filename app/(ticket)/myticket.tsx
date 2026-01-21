@@ -288,7 +288,7 @@ export default function MyTicketsScreen() {
         } else if (status === 'USED' || showtimeDate <= now) {
             return 'Đã xem';
         } else if (status === 'PENDING') {
-            return 'Chờ xác nhận';
+            return 'Đã đặt';
         } else {
             return 'Sắp chiếu';
         }
@@ -305,27 +305,93 @@ export default function MyTicketsScreen() {
                     style: 'destructive',
                     onPress: async () => {
                         try {
-                            // Update status in local storage
-                            const updatedTickets = tickets.map(ticket => {
-                                if (groupedTickets.some(t => t.id === ticket.id)) {
-                                    return { ...ticket, status: 'CANCELLED' as const };
-                                }
-                                return ticket;
-                            });
-
-                            setTickets(updatedTickets);
-
-                            // Save to AsyncStorage
-                            if (currentUser?.id) {
-                                await AsyncStorage.setItem(
-                                    `${TICKETS_STORAGE_KEY}_${currentUser.id}`,
-                                    JSON.stringify(updatedTickets)
-                                );
+                            if (!currentUser?.id) {
+                                Alert.alert('Lỗi', 'Không tìm thấy thông tin người dùng');
+                                return;
                             }
 
-                            Alert.alert('Thành công', 'Đã hủy vé');
-                        } catch (error) {
-                            Alert.alert('Lỗi', 'Không thể hủy vé');
+                            console.log('Cancelling tickets:', groupedTickets.map(t => t.id));
+                            setIsLoading(true);
+
+                            // Update UI ngay lập tức (Optimistic update)
+                            setTickets(prevTickets =>
+                                prevTickets.map(ticket => {
+                                    const isCancelled = groupedTickets.some(t => t.id === ticket.id);
+                                    return isCancelled
+                                        ? { ...ticket, status: 'CANCELLED' as const }
+                                        : ticket;
+                                })
+                            );
+
+                            // Gọi API hủy vé
+                            const cancelPromises = groupedTickets.map(ticket =>
+                                axios.put(
+                                    `${API_URL}/customer/tickets/${ticket.id}/cancel`,
+                                    null,
+                                    {
+                                        params: { userId: currentUser.id },
+                                        headers: { 'Authorization': `Bearer ${authToken}` },
+                                        timeout: 15000
+                                    }
+                                ).catch(error => {
+                                    // Log error nhưng không throw
+                                    console.log(`⚠️ Cancel API returned error for ticket ${ticket.id}:`, error.response?.status);
+                                    return { error: true, ticketId: ticket.id };
+                                })
+                            );
+
+                            const results = await Promise.all(cancelPromises);
+                            console.log('✅ Cancel API calls completed');
+
+                            // Đợi 1 giây rồi fetch lại để verify
+                            await new Promise(resolve => setTimeout(resolve, 1000));
+
+                            // Fetch lại từ server để verify
+                            try {
+                                const response = await axios.get(
+                                    `${API_URL}/customer/tickets/user/${currentUser.id}`,
+                                    {
+                                        headers: { 'Authorization': `Bearer ${authToken}` },
+                                        timeout: 15000
+                                    }
+                                );
+
+                                if (response.data && Array.isArray(response.data)) {
+                                    setTickets(response.data);
+
+                                    // Lưu vào AsyncStorage
+                                    await AsyncStorage.setItem(
+                                        `${TICKETS_STORAGE_KEY}_${currentUser.id}`,
+                                        JSON.stringify(response.data)
+                                    );
+
+                                    // Check xem vé đã bị cancel chưa
+                                    const cancelledTicketIds = groupedTickets.map(t => t.id);
+                                    const allCancelled = response.data
+                                        .filter(t => cancelledTicketIds.includes(t.id))
+                                        .every(t => t.status === 'CANCELLED');
+
+                                    if (allCancelled) {
+                                        Alert.alert('Thành công', 'Đã hủy vé thành công');
+                                    } else {
+                                        Alert.alert('Cảnh báo', 'Một số vé chưa được hủy. Vui lòng kiểm tra lại.');
+                                    }
+                                }
+                            } catch (fetchError) {
+                                console.error('⚠️ Failed to verify cancellation:', fetchError);
+                                // Vẫn hiển thị success vì optimistic update đã chạy
+                                Alert.alert('Đã gửi yêu cầu hủy vé', 'Vui lòng kiểm tra lại sau vài giây');
+                            }
+
+                        } catch (error: any) {
+                            console.error('❌ Cancel ticket error:', error);
+
+                            // Revert optimistic update nếu có lỗi nghiêm trọng
+                            await fetchTickets();
+
+                            Alert.alert('Lỗi', 'Không thể hủy vé. Vui lòng thử lại.');
+                        } finally {
+                            setIsLoading(false);
                         }
                     }
                 }

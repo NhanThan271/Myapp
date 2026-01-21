@@ -79,9 +79,8 @@ export default function PaymentScreen() {
     const [showtimeDetail, setShowtimeDetail] = useState<ShowtimeDetail | null>(null);
     const [selectedSeats, setSelectedSeats] = useState<Seat[]>([]);
 
-    const serviceFee = 5000;
     const subtotal = showtimeDetail?.price ? showtimeDetail.price * selectedSeats.length : 0;
-    const total = subtotal + serviceFee - discount;
+    const total = subtotal - discount;
     const [toast, setToast] = useState({ visible: false, message: '', type: 'error' as 'error' | 'success' | 'info' });
 
     const showToast = (message: string, type: 'error' | 'success' | 'info' = 'error') => {
@@ -369,7 +368,6 @@ export default function PaymentScreen() {
                     showtime: `${time} - ${date}`,
                     seats: selectedSeats.map(s => `${s.rowSeat}${s.number}`).join(', '),
                     amount: subtotal.toString(),
-                    serviceFee: serviceFee.toString(),
                     discount: discount.toString(),
                     // Thêm các thông tin cần thiết để tạo vé sau khi thanh toán thành công
                     showtimeId: showtimeDetail!.id.toString(),
@@ -439,12 +437,6 @@ export default function PaymentScreen() {
     if (!showtimeDetail || !currentUser) {
         return (
             <View style={[styles.container, styles.centerContent]}>
-                <Text style={styles.errorText}>
-                    {!showtimeDetail ? 'Không tìm thấy thông tin suất chiếu' : 'Đang tải thông tin người dùng...'}
-                </Text>
-                <TouchableOpacity style={styles.backButtonError} onPress={() => router.back()}>
-                    <Text style={styles.backButtonText}>Quay lại</Text>
-                </TouchableOpacity>
             </View>
         );
     }
@@ -558,11 +550,6 @@ export default function PaymentScreen() {
                                 Giá vé ({selectedSeats.length} x {showtimeDetail.price.toLocaleString('vi-VN')}đ)
                             </Text>
                             <Text style={styles.priceValue}>{subtotal.toLocaleString('vi-VN')}đ</Text>
-                        </View>
-
-                        <View style={styles.priceRow}>
-                            <Text style={styles.priceLabel}>Phí dịch vụ</Text>
-                            <Text style={styles.priceValue}>{serviceFee.toLocaleString('vi-VN')}đ</Text>
                         </View>
 
                         {discount > 0 && (

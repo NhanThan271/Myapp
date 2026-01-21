@@ -54,7 +54,15 @@ interface Seat {
     rowSeat: string;
     number: number;
     type: 'NORMAL' | 'VIP';
-    status: 'AVAILABLE' | 'BOOKED' | 'RESERVED';
+    room: Room;
+}
+
+interface SeatDTO {
+    id: number;
+    rowSeat: string;
+    number: number;
+    type: 'NORMAL' | 'VIP';
+    status: 'AVAILABLE' | 'BOOKED';
     room: Room;
 }
 
@@ -91,7 +99,7 @@ export default function BookingScreen() {
     // Data từ API
     const [movies, setMovies] = useState<Movie[]>([]);
     const [showtimes, setShowtimes] = useState<Showtime[]>([]);
-    const [seats, setSeats] = useState<Seat[]>([]);
+    const [seats, setSeats] = useState<SeatDTO[]>([]);
 
     // Selected states
     const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
@@ -105,7 +113,10 @@ export default function BookingScreen() {
         useCallback(() => {
             const initBooking = async () => {
                 await fetchMovies();
-
+                if (selectedShowtime) {
+                    console.log('Refreshing seats for showtime:', selectedShowtime.id);
+                    await fetchSeats(selectedShowtime.id);
+                }
                 if (movieIdFromParams && movies.length === 0) {
                     return;
                 }
@@ -117,13 +128,11 @@ export default function BookingScreen() {
                         await fetchShowtimes(movieIdFromParams);
                         setStep(2);
                     }
-                } else {
-                    resetBooking();
                 }
             };
 
             initBooking();
-        }, [movieIdFromParams, movies.length])
+        }, [movieIdFromParams, movies.length, selectedShowtime?.id])
     );
 
     const resetBooking = () => {
@@ -231,7 +240,7 @@ export default function BookingScreen() {
         }
     };
 
-    const fetchSeats = async (roomId: number) => {
+    const fetchSeats = async (showtimeId: number) => {
         try {
             setLoading(true);
             setError(null);
@@ -244,7 +253,7 @@ export default function BookingScreen() {
             };
 
             const response = await axios.get(
-                `${API_BASE_URL}/api/customer/seats/room/${roomId}`,
+                `${API_BASE_URL}/api/customer/seats/showtime/${showtimeId}`,
                 config
             );
 
@@ -252,8 +261,40 @@ export default function BookingScreen() {
             if (typeof data === 'string') {
                 data = JSON.parse(data);
             }
+            console.log('=== SEAT DATA DEBUG ===');
+            console.log('Total seats:', data.length);
+
+            if (data.length > 0) {
+                // Log seat đầu tiên để xem structure
+                console.log('First seat example:', JSON.stringify(data[0], null, 2));
+
+                // Kiểm tra status của 10 ghế đầu
+                console.log('\n--- First 10 seats status ---');
+                data.slice(0, 10).forEach((seat: any) => {
+                    console.log(`Seat ${seat.rowSeat}${seat.number}: status="${seat.status}" (type: ${typeof seat.status})`);
+                });
+
+                // Thống kê
+                const bookedSeats = data.filter((s: any) => s.status === 'BOOKED');
+                const availableSeats = data.filter((s: any) => s.status === 'AVAILABLE');
+
+                console.log('\n--- Statistics ---');
+                console.log(`BOOKED: ${bookedSeats.length} seats`);
+                console.log(`AVAILABLE: ${availableSeats.length} seats`);
+                console.log(`OTHER: ${data.length - bookedSeats.length - availableSeats.length} seats`);
+
+                // Nếu có ghế BOOKED, log ra vài ghế để check
+                if (bookedSeats.length > 0) {
+                    console.log('\n--- Sample BOOKED seats ---');
+                    bookedSeats.slice(0, 3).forEach((seat: any) => {
+                        console.log(`${seat.rowSeat}${seat.number}: ${seat.status}`);
+                    });
+                }
+            }
+            console.log('======================\n');
 
             setSeats(Array.isArray(data) ? data : []);
+
         } catch (err: any) {
             console.error('Error fetching seats:', err);
             setError('Không thể tải sơ đồ ghế');
@@ -263,6 +304,13 @@ export default function BookingScreen() {
     };
 
     const toggleSeat = (seatId: number) => {
+        const seat = seats.find(s => s.id === seatId);
+
+        if (seat?.status === 'BOOKED') {
+            Alert.alert('Thông báo', 'Ghế này đã được đặt bởi người khác');
+            return;
+        }
+
         if (selectedSeats.includes(seatId)) {
             setSelectedSeats(selectedSeats.filter(id => id !== seatId));
         } else {
@@ -489,7 +537,7 @@ export default function BookingScreen() {
                                                             ]}
                                                             onPress={() => {
                                                                 setSelectedShowtime(showtime);
-                                                                fetchSeats(showtime.room.id);
+                                                                fetchSeats(showtime.id);
                                                             }}
                                                         >
                                                             <Text style={[
@@ -533,7 +581,7 @@ export default function BookingScreen() {
     };
 
     const renderSeatSelection = () => {
-        const seatsByRow: { [key: string]: Seat[] } = {};
+        const seatsByRow: { [key: string]: SeatDTO[] } = {};
         seats.forEach(seat => {
             const row = seat.rowSeat.charAt(0);
             if (!row) return;
@@ -544,6 +592,19 @@ export default function BookingScreen() {
         });
 
         const rows = Object.keys(seatsByRow).sort();
+
+        const getSeatStyle = (seat: SeatDTO) => {
+            if (selectedSeats.includes(seat.id)) {
+                return styles.seatSelected;
+            }
+            if (seat.status === 'BOOKED') {
+                return styles.seatBooked;
+            }
+            if (seat.type === 'VIP') {
+                return styles.seatVIP;
+            }
+            return null;
+        };
 
         return (
             <View style={styles.section}>
@@ -578,9 +639,7 @@ export default function BookingScreen() {
                                                 key={seat.id}
                                                 style={[
                                                     styles.seat,
-                                                    seat.status === 'BOOKED' && styles.seatBooked,
-                                                    seat.type === 'VIP' && seat.status !== 'BOOKED' && styles.seatVIP,
-                                                    selectedSeats.includes(seat.id) && styles.seatSelected,
+                                                    getSeatStyle(seat)
                                                 ]}
                                                 disabled={seat.status === 'BOOKED'}
                                                 onPress={() => toggleSeat(seat.id)}
@@ -589,7 +648,7 @@ export default function BookingScreen() {
                                                     styles.seatText,
                                                     (seat.status === 'BOOKED' || selectedSeats.includes(seat.id)) && styles.seatTextLight
                                                 ]}>
-                                                    {/* Sửa từ seat.seatNumber.substring(1) thành seat.number */}
+
                                                     {seat.number}
                                                 </Text>
                                             </TouchableOpacity>
